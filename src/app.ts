@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { userRouter } from "./routes/userRoutes.ts";
+import { authRouter } from "./routes/authRoutes.ts";
+import { serverRouter } from "./routes/serverRoutes.ts";
 
 //routes
-import { userRouter } from "./routes/authRoutes.ts";
 
 const app = new Hono();
 
@@ -17,6 +19,8 @@ app.use(
   })
 );
 
-app.route("/api/v1/auth", userRouter);
+app.route("/api/v1/auth", authRouter);
+app.route("/api/v1/profile", userRouter);
+app.route("/api/v1/server", serverRouter);
 
 export default app;

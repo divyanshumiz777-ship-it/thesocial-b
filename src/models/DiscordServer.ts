@@ -1,11 +1,12 @@
-import mongoose, { Schema } from "mongoose";
+import mongoose, { Schema, Types } from "mongoose";
 
-interface IDiscordServer {
-  owner: Schema.Types.ObjectId;
-  categories: Schema.Types.ObjectId[];
-  channels: Schema.Types.ObjectId[];
+export interface IDiscordServer {
+  _id: Types.ObjectId;
+  owner: Types.ObjectId;
+  categories: Types.ObjectId[];
+  channels: Types.ObjectId[];
   name: string;
-  members: Schema.Types.ObjectId[];
+  members: Types.ObjectId[];
   createdAt: Date;
 }
 
@@ -18,5 +19,8 @@ const DiscordServerSchema = new Schema<IDiscordServer>({
   createdAt: { type: Date, default: Date.now },
 });
 
-const DiscordServer = mongoose.model("DiscordServer", DiscordServerSchema);
+const DiscordServer = mongoose.model<IDiscordServer>(
+  "DiscordServer",
+  DiscordServerSchema
+);
 export default DiscordServer;

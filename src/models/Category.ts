@@ -1,6 +1,7 @@
-import mongoose, { Schema, Document, Types } from "mongoose";
+import mongoose, { Schema, Types } from "mongoose";
 
-export interface ICategory extends Document {
+export interface ICategory {
+  _id: Types.ObjectId;
   name: string;
   server: Types.ObjectId;
   channels: Types.ObjectId[];

@@ -1,8 +1,9 @@
-import mongoose, { Schema, Document, Types } from "mongoose";
+import mongoose, { Schema, Types } from "mongoose";
 
-export interface IChannel extends Document {
+export interface IChannel {
+  _id: Types.ObjectId;
   name: string;
-  categories: Types.ObjectId[];
+  category: Types.ObjectId;
   server: Types.ObjectId;
   type: "Text" | "Voice";
   createdAt: Date;
@@ -10,9 +11,9 @@ export interface IChannel extends Document {
 
 const ChannelSchema = new Schema<IChannel>({
   name: { type: String, required: true, maxLength: 100 },
-  categories: [{ type: Schema.Types.ObjectId, ref: "Category" }],
-  server: { type: Schema.Types.ObjectId, ref: "DiscordServer", required: true },
   type: { type: String, enum: ["Text", "Voice"], required: true },
+  category: { type: Schema.Types.ObjectId, ref: "Category", required: true },
+  server: { type: Schema.Types.ObjectId, ref: "DiscordServer", required: true },
   createdAt: { type: Date, default: Date.now },
 });
 
