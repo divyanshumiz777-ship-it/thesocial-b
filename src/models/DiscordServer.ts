@@ -10,12 +10,32 @@ export interface IDiscordServer {
   createdAt: Date;
 }
 
+export interface IMember {
+  user: Types.ObjectId;
+  roles: string[];
+}
+
+const memberSchema = new Schema(
+  {
+    user: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    roles: {
+      type: [String],
+      default: ["Member"],
+    },
+  },
+  { _id: false }
+);
+
 const DiscordServerSchema = new Schema<IDiscordServer>({
   owner: { type: Schema.Types.ObjectId, ref: "User", required: true },
   categories: [{ type: Schema.Types.ObjectId, ref: "Category" }],
   channels: [{ type: Schema.Types.ObjectId, ref: "Channel" }],
   name: { type: String, required: true, maxLength: 100 },
-  members: [{ type: Schema.Types.ObjectId, ref: "User" }],
+  members: [memberSchema],
   createdAt: { type: Date, default: Date.now },
 });
 

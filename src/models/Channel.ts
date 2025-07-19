@@ -5,6 +5,8 @@ export interface IChannel {
   name: string;
   category: Types.ObjectId;
   server: Types.ObjectId;
+  messages: Types.ObjectId[];
+  senders: Types.ObjectId[];
   type: "Text" | "Voice";
   createdAt: Date;
 }
@@ -14,6 +16,8 @@ const ChannelSchema = new Schema<IChannel>({
   type: { type: String, enum: ["Text", "Voice"], required: true },
   category: { type: Schema.Types.ObjectId, ref: "Category", required: true },
   server: { type: Schema.Types.ObjectId, ref: "DiscordServer", required: true },
+  messages: [{ type: Schema.Types.ObjectId, ref: "Message" }],
+  senders: [{ type: Schema.Types.ObjectId, ref: "User" }],
   createdAt: { type: Date, default: Date.now },
 });
 

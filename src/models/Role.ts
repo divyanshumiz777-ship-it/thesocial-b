@@ -1,5 +1,4 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
-
 interface IRole extends Document {
   user: Types.ObjectId;
   server: Types.ObjectId;
