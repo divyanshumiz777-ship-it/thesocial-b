@@ -3,6 +3,7 @@ import { Server } from "socket.io";
 import Message from "../models/MessageModel.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
+import DiscordServer from "../models/DiscordServer.ts";
 
 export const createMessage = async (c: Context) => {
   try {
@@ -24,6 +25,19 @@ export const createMessage = async (c: Context) => {
     const channel = await Channel.findById(channelId);
     if (!channel) {
       return c.json({ error: "Channel not found" }, 404);
+    }
+
+    const canUserSendMessages = await DiscordServer.findOne({
+      _id: channel?.server,
+      members: {
+        $elemMatch: { user: senderId, roles: "send messages" },
+      },
+    });
+    if (!canUserSendMessages) {
+      return c.json(
+        { error: "You do not have permission to send messages" },
+        403
+      );
     }
 
     const newMessage = await Message.create({
@@ -72,7 +86,7 @@ export const getMessagesByChannelId = async (c: Context) => {
   }
 };
 export const deleteMessage = async (c: Context) => {
-  const { messageId } = c.req.param();
+  const { messageId, user, serverId } = c.req.param();
   if (!messageId) {
     return c.json({ error: "Message ID is required" }, 400);
   }
@@ -80,6 +94,17 @@ export const deleteMessage = async (c: Context) => {
     return c.json({ error: "Invalid message ID format" }, 400);
   }
   try {
+    const canDeleteMessage = await Message.findOne({
+      _id: messageId,
+      sender: user,
+    });
+
+    if (!canDeleteMessage)
+      return c.json(
+        { error: "You do not have permission to delete messages" },
+        403
+      );
+
     const deletedMessage = await Message.findByIdAndDelete(messageId);
     if (!deletedMessage) {
       return c.json({ error: "Message not found" }, 404);
@@ -102,18 +127,35 @@ export const deleteMessage = async (c: Context) => {
   }
 };
 export const updateMessage = async (c: Context) => {
-  const { messageId } = c.req.param();
+  const { messageId, userId } = c.req.param();
   if (!messageId) {
     return c.json({ error: "Message ID is required" }, 400);
   }
-  if (!mongoose.Types.ObjectId.isValid(messageId)) {
-    return c.json({ error: "Invalid message ID format" }, 400);
+  if (
+    !mongoose.Types.ObjectId.isValid(messageId) ||
+    !mongoose.Types.ObjectId.isValid(userId)
+  ) {
+    return c.json(
+      {
+        error: "Invalid message ID format or user ID format",
+      },
+      400
+    );
   }
   const { content } = await c.req.json();
   if (!content) {
     return c.json({ error: "Content is required" }, 400);
   }
   try {
+    const canUpdateMessage = await Message.findOne({
+      _id: messageId,
+      sender: userId,
+    });
+    if (!canUpdateMessage)
+      return c.json(
+        { error: "You do not have permission to update messages" },
+        403
+      );
     const updatedMessage = await Message.findByIdAndUpdate(
       messageId,
       { content },

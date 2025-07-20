@@ -118,65 +118,64 @@ export const getServer = async (c: Context) => {
 export const editServer = async (c: Context) => {
   const { id } = c.req.param();
   const body = await c.req.json();
-  const { name, category, channel, categoryType, channelCategoryId } = body;
+  const { name, category, channel, categoryType, channelCategoryId, user } =
+    body;
 
   try {
-    const serverToUpdate = await DiscordServer.findById(id);
-    if (!serverToUpdate) {
-      return c.json({ error: "No such server exists" }, 404);
+    const hasPermission = await DiscordServer.findOne({
+      _id: id,
+      members: {
+        $elemMatch: { user: user._id, roles: "edit server" },
+      },
+    });
+    if (!hasPermission) {
+      return c.json({ error: "Permission denied or server not found." }, 403);
     }
+
+    if (name) {
+      await DiscordServer.findByIdAndUpdate(id, { $set: { name } });
+    }
+
     if (category) {
-      const newCategory = await Category.create({
-        name: category,
-        server: serverToUpdate._id,
+      const newCategory = await Category.create({ name, server: id });
+      await DiscordServer.findByIdAndUpdate(id, {
+        $push: { categories: newCategory._id },
       });
-      serverToUpdate.categories.push(newCategory._id);
     }
+
     if (channel) {
       let assignedCategoryId = channelCategoryId;
-
-      if (!channelCategoryId) {
-        let uncategorized = await Category.findOne({
-          name: "Uncategorized",
-          server: serverToUpdate._id,
-        });
-
-        if (!uncategorized) {
-          uncategorized = await Category.create({
+      if (!assignedCategoryId) {
+        const uncategorized = await Category.findOneAndUpdate(
+          {
             name: "Uncategorized",
-            server: serverToUpdate._id,
-          });
-          serverToUpdate.categories.push(uncategorized._id);
-        }
-
-        assignedCategoryId = uncategorized._id;
+            server: id,
+          },
+          {
+            $setOnInsert: { name: "Uncategorized", server: id },
+          },
+          {
+            upsert: true,
+            new: true,
+          }
+        );
       }
-
       const newChannel = await Channel.create({
         name: channel,
         type: categoryType,
         category: assignedCategoryId,
-        server: serverToUpdate._id,
+        server: id,
       });
-
-      await Category.findByIdAndUpdate(
-        assignedCategoryId,
-        { $push: { channels: newChannel._id } },
-        { new: true }
-      );
-
-      serverToUpdate.channels.push(newChannel._id);
-      await newChannel.save();
+      await DiscordServer.findByIdAndUpdate(id, {
+        $push: { channels: newChannel._id },
+      });
+      await Category.findByIdAndUpdate(assignedCategoryId, {
+        $push: { channels: newChannel._id },
+      });
     }
-
-    if (name) {
-      serverToUpdate.name = name;
-    }
-
-    await serverToUpdate.save();
-
+    const updatedServer = await DiscordServer.findById(id);
     return c.json(
-      { message: "Server updated successfully", server: serverToUpdate },
+      { message: "Server updated successfully", server: updatedServer },
       200
     );
   } catch (error) {
@@ -184,15 +183,24 @@ export const editServer = async (c: Context) => {
     return c.json({ error: "Internal server error" }, 500);
   }
 };
-
 export const deleteServer = async (c: Context) => {
   const { id } = c.req.param();
+  const { user } = await c.req.json();
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return c.json({ error: "Invalid server ID format" }, 400);
   }
   try {
     const session = await mongoose.startSession();
     session.startTransaction();
+    const hasPermission = await DiscordServer.findOne({
+      _id: id,
+      members: {
+        $elemMatch: { user: user._id, roles: "delete server" },
+      },
+    });
+    if (!hasPermission) {
+      return c.json({ error: "Permission denied or server not found." }, 403);
+    }
 
     const deletedServer = await DiscordServer.findByIdAndDelete(id, {
       session,

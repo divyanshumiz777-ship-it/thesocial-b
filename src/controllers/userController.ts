@@ -38,10 +38,14 @@ export const getUser = async (c: Context) => {
 export const editUser = async (c: Context) => {
   const { id } = c.req.param();
   const body = await c.req.json();
-  const { name } = body;
+  const { name, profilePic, userId, editorId } = body;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    return c.json({ error: "Invalid user ID format" }, 400);
+  if (
+    !mongoose.Types.ObjectId.isValid(id) ||
+    !mongoose.Types.ObjectId.isValid(userId) ||
+    !mongoose.Types.ObjectId.isValid(editorId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
   }
 
   try {
@@ -49,8 +53,15 @@ export const editUser = async (c: Context) => {
     if (!user) {
       return c.json({ message: "No such user exists" }, 404);
     }
-
+    const canEdit = await User.findOne({
+      _id: editorId,
+    });
+    if (!canEdit) {
+      return c.json({ error: "Permission denied" }, 403);
+    }
     if (name) user.name = name;
+    await user.save();
+    if (profilePic) user.profilePic = profilePic;
     await user.save();
 
     return c.json({ message: "User updated successfully", user }, 200);
@@ -60,13 +71,29 @@ export const editUser = async (c: Context) => {
   }
 };
 export const deleteUser = async (c: Context) => {
-  const { id } = c.req.param();
+  const { id, deleteId, userId } = c.req.param();
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    return c.json({ error: "Invalid user ID format" }, 400);
+  if (
+    !mongoose.Types.ObjectId.isValid(id) ||
+    !mongoose.Types.ObjectId.isValid(userId) ||
+    !mongoose.Types.ObjectId.isValid(deleteId)
+  ) {
+    return c.json({ error: "Invalid ID format " }, 400);
   }
 
   try {
+    const canDelete = await DiscordServer.findOne({
+      _id: id,
+      members: {
+        $elemMatch: {
+          $or: [{ user: userId }, { user: deleteId, roles: "owner" }],
+        },
+      },
+    });
+    if (!canDelete) {
+      return c.json({ error: "Permission denied" }, 403);
+    }
+
     const deletedUser = await User.findByIdAndDelete(id);
 
     if (!deletedUser) {
