@@ -7,6 +7,7 @@ export interface IDiscordServer {
   channels: Types.ObjectId[];
   name: string;
   members: Types.ObjectId[];
+  onlineCount: number;
   createdAt: Date;
 }
 
@@ -36,6 +37,7 @@ const DiscordServerSchema = new Schema<IDiscordServer>({
   channels: [{ type: Schema.Types.ObjectId, ref: "Channel" }],
   name: { type: String, required: true, maxLength: 100 },
   members: [memberSchema],
+  onlineCount: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
 });
 

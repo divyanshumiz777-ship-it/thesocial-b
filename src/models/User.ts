@@ -1,13 +1,14 @@
-import mongoose, { Schema, Document } from "mongoose";
-import { Types } from "mongoose";
+import mongoose, { Schema, Document, Types } from "mongoose";
 
 interface IUser extends Document {
   name: string;
   email: string;
+  lastSeen: Date;
   servers?: Types.ObjectId[];
   roles?: Types.ObjectId[];
   password?: string;
   profilePic?: string;
+  dms?: Types.ObjectId[];
   provider: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
@@ -41,6 +42,8 @@ const UserSchema = new Schema<IUser>({
     type: String,
     default: "",
   },
+  dms: [{ type: Schema.Types.ObjectId, ref: "DirectMessage" }],
+  lastSeen: { type: Date, default: Date.now },
   provider: { type: String, default: "local" },
   servers: [{ type: Schema.Types.ObjectId, ref: "DiscordServer" }],
   roles: [{ type: Schema.Types.ObjectId, ref: "Role" }],

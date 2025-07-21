@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { Context } from "hono";
 import User from "../models/User.ts";
 import DiscordServer from "../models/DiscordServer.ts";
+import { Server } from "socket.io";
 
 export const getAllUsers = async (c: Context) => {
   try {
@@ -125,6 +126,10 @@ export const joinServer = async (c: Context) => {
   }
 
   try {
+    const io: Server = c.get("io");
+    if (!io) {
+      return c.json({ error: "Socket.IO instance not available" }, 500);
+    }
     const updatedUser = await User.findByIdAndUpdate(
       id,
       { $addToSet: { servers: serverId } },
@@ -136,6 +141,7 @@ export const joinServer = async (c: Context) => {
     if (!updatedUser) {
       return c.json({ error: "User not found" }, 404);
     }
+    io.to(serverId).emit("userJoined", updatedUser);
     return c.json(
       { message: "Joined server successfully", server: updatedServer },
       200
@@ -164,23 +170,24 @@ export const leaveServer = async (c: Context) => {
   }
 
   try {
-    const user = await User.findById(id);
-    if (!user) {
-      return c.json({ message: "No such user exists" }, 404);
+    const io: Server = c.get("io");
+    if (!io) {
+      return c.json({ error: "Socket.IO instance not available" }, 500);
     }
-
-    if (user.servers?.includes(serverId)) {
-      user.servers = user.servers.filter(
-        (server) => server.toString() !== serverId
-      );
-      await user.save();
-      await DiscordServer.findByIdAndUpdate(serverId, {
-        $pull: { members: { user: id } },
-      });
-      return c.json({ message: "Left server successfully", user }, 200);
-    } else {
-      return c.json({ message: "Not a member of this server" }, 400);
-    }
+    const updatedUser = await User.findByIdAndUpdate(
+      id,
+      { $pull: { servers: serverId } },
+      { new: true }
+    );
+    if (!updatedUser) return c.json({ error: "User not found" }, 404);
+    await DiscordServer.findByIdAndUpdate(serverId, {
+      $pull: { members: { user: id } },
+    });
+    io.to(serverId).emit("userLeft", { userId: id, serverId: serverId });
+    return c.json(
+      { message: "Left server successfully", user: updatedUser },
+      200
+    );
   } catch (error) {
     console.error("Error leaving server:", error);
     return c.json({ error: "Internal server error" }, 500);

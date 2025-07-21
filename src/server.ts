@@ -14,10 +14,10 @@ async function startServer() {
   try {
     await connectDB();
     console.log("Database connected successfully!");
-
+    98;
     const PORT = Number(process.env.PORT) || 8001;
 
-    const httpServerInstance = await serve({
+    const httpServerInstance = serve({
       fetch: app.fetch,
       port: PORT,
     });
@@ -29,15 +29,35 @@ async function startServer() {
       },
     });
 
+    const typingTimeouts = new Map();
+
     ioInstance.on("connection", (socket) => {
-      console.log("Socket.IO: A user connected!");
-      socket.on("message", (msg) => {
-        console.log("Received message:", msg);
-        ioInstance.emit("message", msg);
+      let connectedServerId: string;
+      let connectedUserId: string;
+      socket.on("join-server", (serverId, userId) => {
+        socket.join(serverId);
+        connectedServerId = serverId;
+        connectedUserId = userId;
+
+        ioInstance.to(serverId).emit("user-connected", userId, Date.now());
+      });
+      socket.on("typing", (channelId, userId) => {
+        const timeoutKey = `${channelId}-${userId}`;
+        if (typingTimeouts.has(timeoutKey)) {
+          clearTimeout(typingTimeouts.get(timeoutKey));
+        }
+        const newTimeout = setTimeout(() => {
+          ioInstance.to(channelId).emit("stop-typing", userId);
+          typingTimeouts.delete(timeoutKey);
+        }, 3000);
+        typingTimeouts.set(timeoutKey, newTimeout);
       });
 
       socket.on("disconnect", () => {
-        console.log("Socket.IO: User disconnected!");
+        if (connectedServerId && connectedUserId)
+          ioInstance
+            .to(connectedServerId)
+            .emit("user-disconnected", connectedUserId, Date.now());
       });
     });
 
