@@ -6,6 +6,7 @@ export interface IThread extends Document {
   server: Types.ObjectId;
   messages: Types.ObjectId[];
   senders: Types.ObjectId[];
+  creator: Types.ObjectId;
 }
 
 const ThreadSchema = new Schema<IThread>(
@@ -18,6 +19,7 @@ const ThreadSchema = new Schema<IThread>(
       required: true,
     },
     messages: [{ type: Schema.Types.ObjectId, ref: "Message" }],
+    creator: { type: Schema.Types.ObjectId, ref: "User", required: true },
     senders: [{ type: Schema.Types.ObjectId, ref: "User" }],
   },
   { timestamps: true }

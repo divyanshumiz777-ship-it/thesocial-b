@@ -25,7 +25,7 @@ const memberSchema = new Schema(
     },
     roles: {
       type: [String],
-      default: ["Member"],
+      default: ["member"],
     },
   },
   { _id: false }

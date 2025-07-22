@@ -10,6 +10,7 @@ export interface IMessage extends Document {
   sender: Types.ObjectId;
   edited: boolean;
   channel?: Types.ObjectId;
+  thread?: Types.ObjectId;
   conversationId?: Types.ObjectId;
   reactions: IReaction[];
 }
@@ -29,6 +30,7 @@ const MessageSchema = new Schema<IMessage>(
     edited: { type: Boolean, default: false },
     channel: { type: Schema.Types.ObjectId, ref: "Channel" },
     conversationId: { type: Schema.Types.ObjectId, ref: "Conversation" },
+    thread: { type: Schema.Types.ObjectId, ref: "Thread" },
     reactions: [ReactionSchema],
   },
   { timestamps: true }

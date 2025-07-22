@@ -46,7 +46,7 @@ export const createMessage = async (c: Context) => {
       content,
     });
 
-    io.to(`channel-${channelId}`).emit("message", newMessage);
+    io.to(channelId).emit("message", newMessage);
 
     await Channel.findByIdAndUpdate(channelId, {
       $push: { messages: newMessage._id },
@@ -85,8 +85,10 @@ export const getMessagesByChannelId = async (c: Context) => {
     return c.json({ error: "Failed to fetch messages" }, 500);
   }
 };
+
 export const deleteMessage = async (c: Context) => {
   const { messageId, user } = c.req.param();
+  const io: Server = c.get("io");
   if (!messageId) {
     return c.json({ error: "Message ID is required" }, 400);
   }
@@ -109,13 +111,13 @@ export const deleteMessage = async (c: Context) => {
     if (!deletedMessage) {
       return c.json({ error: "Message not found" }, 404);
     }
-    const io: Server = c.get("io");
-    if (io) {
-      io.to(`channel-${deletedMessage.channel}`).emit(
-        "messageDeleted",
-        messageId
-      );
+    const channelIdString = deletedMessage.channel?.toString();
+    if (!channelIdString) {
+      return c.json({ error: "Invalid channel ID" }, 400);
     }
+
+    io.to(channelIdString).emit("messageDeleted", messageId);
+
     await Channel.updateOne(
       { messages: messageId },
       { $pull: { messages: messageId } }
@@ -126,8 +128,10 @@ export const deleteMessage = async (c: Context) => {
     return c.json({ error: "Failed to delete message" }, 500);
   }
 };
+
 export const updateMessage = async (c: Context) => {
   const { messageId, userId } = c.req.param();
+  const io: Server = c.get("io");
   if (!messageId) {
     return c.json({ error: "Message ID is required" }, 400);
   }
@@ -164,13 +168,9 @@ export const updateMessage = async (c: Context) => {
     if (!updatedMessage) {
       return c.json({ error: "Message not found" }, 404);
     }
-    const io: Server = c.get("io");
-    if (io) {
-      io.to(`channel-${updatedMessage.channel}`).emit(
-        "messageUpdated",
-        updatedMessage
-      );
-    }
+    const channelIdString = updatedMessage.channel?.toString();
+    if (!channelIdString) return c.json({ error: "Invalid channel ID" }, 400);
+    io.to(channelIdString).emit("messageUpdated", updatedMessage);
     return c.json(updatedMessage, 200);
   } catch (error) {
     console.error("Error updating message:", error);
