@@ -1,6 +1,4 @@
 import { Context, Hono } from "hono";
-import { serve } from "@hono/node-server";
-import { Server } from "socket.io";
 
 import { cors } from "hono/cors";
 import { userRouter } from "./routes/userRoutes.ts";

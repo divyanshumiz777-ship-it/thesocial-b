@@ -1,6 +1,6 @@
 import { Context } from "hono";
 import { Server } from "socket.io";
-import Message from "../models/MessageModel.ts";
+import Message from "../models/Message.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
 import DiscordServer from "../models/DiscordServer.ts";
@@ -86,7 +86,7 @@ export const getMessagesByChannelId = async (c: Context) => {
   }
 };
 export const deleteMessage = async (c: Context) => {
-  const { messageId, user, serverId } = c.req.param();
+  const { messageId, user } = c.req.param();
   if (!messageId) {
     return c.json({ error: "Message ID is required" }, 400);
   }
@@ -175,5 +175,49 @@ export const updateMessage = async (c: Context) => {
   } catch (error) {
     console.error("Error updating message:", error);
     return c.json({ error: "Failed to update message" }, 500);
+  }
+};
+
+export const toggleReaction = async (c: Context) => {
+  const { messageId } = c.req.param();
+  const { emoji, user, conversationId } = await c.req.json();
+  const io: Server = c.get("io");
+  if (
+    !mongoose.Types.ObjectId.isValid(messageId) ||
+    !mongoose.Types.ObjectId.isValid(conversationId)
+  )
+    return c.json({ error: "Invalid ID format" }, 400);
+  try {
+    const message = await Message.findById(messageId);
+    if (!message) return c.json({ error: "Message not found" }, 404);
+
+    const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
+    const userIdString = user._id.toString();
+
+    if (reactionIndex > -1) {
+      const reaction = message.reactions[reactionIndex];
+      const userIndex = reaction.users.findIndex(
+        (u) => u.toString() === userIdString
+      );
+
+      if (userIndex > -1) {
+        reaction.users.splice(userIndex, 1);
+        if (reaction.users.length === 0) {
+          message.reactions.splice(reactionIndex, 1);
+        }
+      } else {
+        reaction.users.push(user._id);
+      }
+    } else {
+      message.reactions.push({ emoji, users: [user._id] });
+    }
+    await message.save();
+
+    io.to(conversationId).emit("reactionUpdated", message);
+
+    return c.json({ message: "Reaction updated successfully" }, 200);
+  } catch (error) {
+    console.error("Error adding reaction:", error);
+    return c.json({ error: "Failed to add reaction" }, 500);
   }
 };
