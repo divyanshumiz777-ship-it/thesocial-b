@@ -8,6 +8,7 @@ export interface IDiscordServer {
   name: string;
   members: Types.ObjectId[];
   onlineCount: number;
+  profilePic: string;
 }
 
 export interface IBanned {
@@ -92,6 +93,7 @@ const DiscordServerSchema = new Schema<IDiscordServer>(
     categories: [{ type: Schema.Types.ObjectId, ref: "Category" }],
     channels: [{ type: Schema.Types.ObjectId, ref: "Channel" }],
     name: { type: String, required: true, maxLength: 100 },
+    profilePic: { type: String },
     members: [memberSchema],
     onlineCount: { type: Number, default: 0 },
   },

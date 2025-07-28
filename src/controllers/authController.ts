@@ -1,14 +1,17 @@
 import { Context } from "hono";
 import User from "../models/User.ts";
-
 import { sign } from "hono/jwt";
-
 import argon2 from "argon2";
+import { uploadOnCloudinary } from "../lib/cloudinary.ts";
+import { Buffer } from "node:buffer";
 
 export const registerUser = async (c: Context) => {
-  const body = await c.req.json();
+  const formData = await c.req.formData();
 
-  const { email, password, name } = body;
+  const email = formData.get("email") as string;
+  const password = formData.get("password") as string;
+  const name = formData.get("name") as string;
+  const profilePicFile = formData.get("profilePic") as File | null;
 
   if (!email || !password || !name) {
     return c.json({ error: "Name, email, and password are required" }, 400);
@@ -31,6 +34,24 @@ export const registerUser = async (c: Context) => {
     password: hashedPassword,
   });
 
+  if (profilePicFile && profilePicFile.size > 0) {
+    try {
+      const arrayBuffer = await profilePicFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const cloudinaryResponse = await uploadOnCloudinary(buffer, {
+        folder: "profile_pics",
+        resource_type: "image",
+      });
+
+      if (cloudinaryResponse) {
+        newUser.profilePic = cloudinaryResponse.secure_url;
+      }
+    } catch (error) {
+      console.error("Error uploading profile picture to Cloudinary:", error);
+      return c.json({ error: "Failed to upload profile picture" }, 500);
+    }
+  }
   await newUser.save();
 
   return c.json({ message: "User registered successfully", newUser }, 201);

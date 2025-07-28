@@ -10,9 +10,12 @@ export interface IMessage extends Document {
   sender: Types.ObjectId;
   edited: boolean;
   channel?: Types.ObjectId;
+  server: Types.ObjectId;
   thread?: Types.ObjectId;
   conversationId?: Types.ObjectId;
   reactions: IReaction[];
+  mentions: Types.ObjectId[];
+  attachments: string[];
 }
 
 const ReactionSchema = new Schema<IReaction>(
@@ -29,9 +32,12 @@ const MessageSchema = new Schema<IMessage>(
     sender: { type: Schema.Types.ObjectId, ref: "User", required: true },
     edited: { type: Boolean, default: false },
     channel: { type: Schema.Types.ObjectId, ref: "Channel" },
+    server: { type: Schema.Types.ObjectId, ref: "DiscordServer" },
     conversationId: { type: Schema.Types.ObjectId, ref: "Conversation" },
     thread: { type: Schema.Types.ObjectId, ref: "Thread" },
     reactions: [ReactionSchema],
+    mentions: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    attachments: [{ type: String }],
   },
   { timestamps: true }
 );

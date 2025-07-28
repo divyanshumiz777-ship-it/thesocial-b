@@ -9,7 +9,7 @@ import {
   addMember,
   removeMember,
   banMember,
-  unbanMember,
+  unBanMember,
   muteMember,
   unmuteMember,
 } from "../controllers/serverController.ts";
@@ -25,6 +25,6 @@ serverRouter.put("/edit-member-role/:serverId", editMemberRole);
 serverRouter.put("/add-member/:serverId", addMember);
 serverRouter.put("/remove-member/:serverId", removeMember);
 serverRouter.put("/ban-member/:serverId", banMember);
-serverRouter.put("/unban-member/:serverId", unbanMember);
+serverRouter.put("/unBan-member/:serverId", unBanMember);
 serverRouter.put("/mute-member/:serverId", muteMember);
 serverRouter.put("/unmute-member/:serverId", unmuteMember);

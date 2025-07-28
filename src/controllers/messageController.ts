@@ -4,6 +4,8 @@ import Message from "../models/Message.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
 import DiscordServer from "../models/DiscordServer.ts";
+import { uploadOnCloudinary } from "../lib/cloudinary.ts";
+import { Buffer } from "node:buffer";
 
 export const createMessage = async (c: Context) => {
   try {
@@ -12,47 +14,86 @@ export const createMessage = async (c: Context) => {
       return c.json({ error: "Socket.IO instance not available" }, 500);
     }
     const { channelId } = c.req.param();
-    const { content, senderId } = await c.req.json();
-    if (!channelId || !senderId || !content) {
-      return c.json({ error: "Missing required fields" }, 400);
-    }
+    const formData = await c.req.formData();
+
+    const content = formData.get("content") as string;
+    const senderId = formData.get("senderId") as string;
+    const serverId = formData.get("serverId") as string;
+    const attachmentFile = formData.get("attachment") as File | null;
+    const mentionsString = formData.get("mentions") as string | null;
+    const mentions = mentionsString ? JSON.parse(mentionsString) : [];
+
     if (
       !mongoose.Types.ObjectId.isValid(channelId) ||
-      !mongoose.Types.ObjectId.isValid(senderId)
+      !mongoose.Types.ObjectId.isValid(senderId) ||
+      !mongoose.Types.ObjectId.isValid(serverId)
     ) {
       return c.json({ error: "Invalid ID format" }, 400);
     }
-    const channel = await Channel.findById(channelId);
-    if (!channel) {
-      return c.json({ error: "Channel not found" }, 404);
-    }
-
     const canUserSendMessages = await DiscordServer.findOne({
-      _id: channel?.server,
+      _id: serverId,
       members: {
-        $elemMatch: { user: senderId, roles: "send messages" },
+        $elemMatch: {
+          user: senderId,
+          "muted.isMuted": { $ne: true },
+          "banned.isBanned": { $ne: true },
+          roles: "send messages",
+        },
       },
     });
     if (!canUserSendMessages) {
       return c.json(
-        { error: "You do not have permission to send messages" },
+        {
+          error: "You do not have permission to send messages in this server.",
+        },
         403
       );
     }
+    const attachments = [];
+    if (attachmentFile) {
+      const arrayBuffer = await attachmentFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const cloudinaryResponse = await uploadOnCloudinary(buffer, {
+        folder: "attachments",
+        resource_type: "auto",
+      });
+
+      if (cloudinaryResponse) {
+        attachments.push(cloudinaryResponse.secure_url);
+      }
+    }
 
     const newMessage = await Message.create({
-      channel: channelId,
+      channelId,
+      serverId,
       sender: senderId,
       content,
+      mentions,
+      attachments,
     });
+    const populatedMessage = await Message.findById(newMessage._id).populate(
+      "sender"
+    );
 
-    io.to(channelId).emit("message", newMessage);
+    io.to(channelId).emit("message", populatedMessage);
+
+    if (mentions.length > 0) {
+      mentions.forEach((userId: string) => {
+        io.to(userId).emit("newMention", {
+          message: populatedMessage,
+          channelId,
+          serverId,
+        });
+      });
+    }
 
     await Channel.findByIdAndUpdate(channelId, {
       $push: { messages: newMessage._id },
       $addToSet: { senders: senderId },
     });
-    return c.json(newMessage, 201);
+
+    return c.json(populatedMessage, 201);
   } catch (error) {
     console.error("Error creating message:", error);
     return c.json({ error: "Failed to create message" }, 500);
@@ -130,47 +171,70 @@ export const deleteMessage = async (c: Context) => {
 };
 
 export const updateMessage = async (c: Context) => {
-  const { messageId, userId } = c.req.param();
-  const io: Server = c.get("io");
-  if (!messageId) {
-    return c.json({ error: "Message ID is required" }, 400);
-  }
-  if (
-    !mongoose.Types.ObjectId.isValid(messageId) ||
-    !mongoose.Types.ObjectId.isValid(userId)
-  ) {
-    return c.json(
-      {
-        error: "Invalid message ID format or user ID format",
-      },
-      400
-    );
-  }
-  const { content } = await c.req.json();
-  if (!content) {
-    return c.json({ error: "Content is required" }, 400);
-  }
   try {
-    const canUpdateMessage = await Message.findOne({
+    const io: Server = c.get("io");
+    const { messageId } = c.req.param();
+    const formData = await c.req.formData();
+    const content = formData.get("content") as string;
+    const senderId = formData.get("senderId") as string;
+    const attachmentFile = formData.get("attachment") as File | null;
+
+    if (
+      !mongoose.Types.ObjectId.isValid(messageId) ||
+      !mongoose.Types.ObjectId.isValid(senderId)
+    ) {
+      return c.json({ error: "Invalid message or user ID format" }, 400);
+    }
+
+    const originalMessage = await Message.findOne({
       _id: messageId,
-      sender: userId,
+      sender: senderId,
     });
-    if (!canUpdateMessage)
+
+    if (!originalMessage) {
       return c.json(
-        { error: "You do not have permission to update messages" },
+        { error: "Message not found or you don't have permission to edit it." },
         403
       );
+    }
+
+    let newAttachmentUrl: string | null = null;
+    if (attachmentFile) {
+      const arrayBuffer = await attachmentFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const cloudinaryResponse = await uploadOnCloudinary(buffer, {
+        folder: "attachments",
+        resource_type: "auto",
+      });
+
+      if (cloudinaryResponse) {
+        newAttachmentUrl = cloudinaryResponse.secure_url;
+      }
+    }
+
+    const updateOperation: any = {
+      $set: { content, edited: true },
+    };
+
+    if (newAttachmentUrl) {
+      updateOperation.$push = { attachments: newAttachmentUrl };
+    }
+
     const updatedMessage = await Message.findByIdAndUpdate(
       messageId,
-      { content },
+      updateOperation,
       { new: true }
-    );
+    ).populate("sender");
+
     if (!updatedMessage) {
       return c.json({ error: "Message not found" }, 404);
     }
+
     const channelIdString = updatedMessage.channel?.toString();
-    if (!channelIdString) return c.json({ error: "Invalid channel ID" }, 400);
-    io.to(channelIdString).emit("messageUpdated", updatedMessage);
+    if (channelIdString) {
+      io.to(channelIdString).emit("messageUpdated", updatedMessage);
+    }
+
     return c.json(updatedMessage, 200);
   } catch (error) {
     console.error("Error updating message:", error);

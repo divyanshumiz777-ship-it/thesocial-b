@@ -5,7 +5,7 @@ import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
 import User from "../models/User.ts";
 import { Server } from "socket.io";
-import { error } from "console";
+import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 
 export const createServer = async (c: Context) => {
   const body = await c.req.json();
@@ -120,8 +120,15 @@ export const getServer = async (c: Context) => {
 export const editServer = async (c: Context) => {
   const { id } = c.req.param();
   const body = await c.req.json();
-  const { name, category, channel, categoryType, channelCategoryId, user } =
-    body;
+  const {
+    name,
+    category,
+    channel,
+    categoryType,
+    channelCategoryId,
+    user,
+    profilePicFile,
+  } = body;
 
   try {
     const hasPermission = await DiscordServer.findOne({
@@ -175,7 +182,29 @@ export const editServer = async (c: Context) => {
         $push: { channels: newChannel._id },
       });
     }
+
     const updatedServer = await DiscordServer.findById(id);
+    if (!updatedServer) return c.json({ error: "Server not found" }, 404);
+
+    if (profilePicFile && profilePicFile.size > 0) {
+      try {
+        const arrayBuffer = await profilePicFile.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        const cloudinaryResponse = await uploadOnCloudinary(buffer, {
+          folder: "profile_pics",
+          resource_type: "image",
+        });
+
+        if (cloudinaryResponse) {
+          updatedServer.profilePic = cloudinaryResponse.secure_url;
+        }
+      } catch (error) {
+        console.error("Error uploading profile picture to Cloudinary:", error);
+        return c.json({ error: "Failed to upload profile picture" }, 500);
+      }
+    }
+
     return c.json(
       { message: "Server updated successfully", server: updatedServer },
       200
@@ -444,7 +473,7 @@ export const banMember = async (c: Context) => {
   }
 };
 
-export const unbanMember = async (c: Context) => {
+export const unBanMember = async (c: Context) => {
   const { serverId } = c.req.param();
   const { userId, userToUnbanId } = await c.req.json();
   if (
@@ -488,6 +517,112 @@ export const unbanMember = async (c: Context) => {
   }
 };
 
-export const muteMember = async (c: Context) => {};
+export const muteMember = async (c: Context) => {
+  const { serverId } = c.req.param();
+  const { userId, reason, userToMuteId, duration } = await c.req.json();
+  const io: Server = c.get("io");
 
-export const unmuteMember = async (c: Context) => {};
+  if (
+    !mongoose.Types.ObjectId.isValid(serverId) ||
+    !mongoose.Types.ObjectId.isValid(userId) ||
+    !mongoose.Types.ObjectId.isValid(userToMuteId)
+  )
+    return c.json({ error: "Invalid ID format" }, 400);
+  if (!reason) return c.json({ error: "Reason is required" }, 400);
+  if (!duration || typeof duration !== "number")
+    return c.json({ error: "Duration (in ms) is required" }, 400);
+
+  try {
+    const hasPermission = await DiscordServer.findOne({
+      _id: serverId,
+      members: { $elemMatch: { user: userId, roles: "mute member" } },
+    });
+    if (!hasPermission) {
+      return c.json(
+        { error: "You do not have permission to mute members." },
+        403
+      );
+    }
+
+    const memberToMute = await DiscordServer.findOne({
+      _id: serverId,
+      "members.user": userToMuteId,
+    });
+    if (!memberToMute) {
+      return c.json({ error: "User is not a member of this server." }, 404);
+    }
+
+    const userAlreadyMuted = await DiscordServer.findOne({
+      _id: serverId,
+      "members.user": userToMuteId,
+      "members.muted.isMuted": true,
+    });
+    if (userAlreadyMuted) {
+      return c.json({ error: "User is already muted." }, 400);
+    }
+    const expiresAt = new Date(Date.now() + duration);
+
+    await DiscordServer.findOneAndUpdate(
+      { _id: serverId, "members.user": userToMuteId },
+      {
+        $set: {
+          "members.$.muted": {
+            isMuted: true,
+            reason: reason,
+            mutedBy: userId,
+            expiresAt: expiresAt,
+          },
+        },
+      },
+      { new: true }
+    );
+
+    io.to(serverId.toString()).emit("memberMuted", {
+      userToMuteId,
+      serverId,
+      expiresAt,
+    });
+    return c.json({ message: "Member muted successfully" }, 200);
+  } catch (error) {
+    console.error("Error muting member:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+export const unmuteMember = async (c: Context) => {
+  const { serverId } = c.req.param();
+  const { userId, userToUnmuteId } = await c.req.json();
+  if (
+    !mongoose.Types.ObjectId.isValid(serverId) ||
+    !mongoose.Types.ObjectId.isValid(userId) ||
+    !mongoose.Types.ObjectId.isValid(userToUnmuteId)
+  )
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const updatedServer = await DiscordServer.findOneAndUpdate(
+      {
+        _id: serverId,
+        members: { $elemMatch: { user: userId, roles: "unmute member" } },
+      },
+      {
+        $unset: {
+          "members.[elem].muted": "",
+        },
+      },
+      {
+        arrayFilters: [{ "elem.user": userToUnmuteId }],
+        new: true,
+      }
+    );
+    if (!updatedServer)
+      return c.json(
+        { error: "Action failed. Check if the user exists and is muted." },
+        403
+      );
+
+    return c.json({ message: "Member unmuted successfully" }, 200);
+  } catch (error) {
+    console.error("Error unmuting member:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};

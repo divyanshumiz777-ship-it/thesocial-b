@@ -142,6 +142,14 @@ export const joinServer = async (c: Context) => {
       return c.json({ error: "User not found" }, 404);
     }
     io.to(serverId).emit("userJoined", updatedUser);
+    Notification.requestPermission().then((perm) => {
+      if (perm === "granted") {
+        new Notification("Server", {
+          body: `Joined ${updatedServer?.name}`,
+          icon: "",
+        });
+      }
+    });
     return c.json(
       { message: "Joined server successfully", server: updatedServer },
       200
