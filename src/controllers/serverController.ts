@@ -6,6 +6,8 @@ import Channel from "../models/Channel.ts";
 import User from "../models/User.ts";
 import { Server } from "socket.io";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
+import { nanoid } from "nanoid";
+import Invite from "../models/Invite.ts";
 
 export const createServer = async (c: Context) => {
   const body = await c.req.json();
@@ -623,6 +625,68 @@ export const unmuteMember = async (c: Context) => {
     return c.json({ message: "Member unmuted successfully" }, 200);
   } catch (error) {
     console.error("Error unmuting member:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const createInvite = async (c: Context) => {
+  const { serverId, user } = await c.req.json();
+  const code = nanoid(10);
+  if (!mongoose.Types.ObjectId.isValid(serverId)) {
+    return c.json({ error: "Invalid server ID format" }, 400);
+  }
+  try {
+    const hasPermission = await DiscordServer.findOne({
+      _id: serverId,
+      members: {
+        $elemMatch: { user: user._id, roles: "create invite" },
+      },
+    });
+    if (!hasPermission) {
+      return c.json({ error: "Permission denied or server not found." }, 403);
+    }
+    const newInvite = await Invite.create({
+      code,
+      server: serverId,
+      createdBy: user._id,
+    });
+
+    return c.json({ inviteLink: `http://localhost:3000/invite/${code}` });
+  } catch (error) {
+    console.error("Error creating invite:", error);
+    return c.json({ error: "Internal server error" });
+  }
+};
+export const acceptInvite = async (c: Context) => {
+  const { inviteCode } = c.req.param();
+  const { user } = await c.req.json();
+
+  try {
+    const invite = await Invite.findOne({ code: inviteCode });
+
+    if (!invite) {
+      return c.json({ error: "Invalid invite code." }, 404);
+    }
+    if (invite.expiresAt && invite.expiresAt < new Date()) {
+      return c.json({ error: "This invite has expired." }, 400);
+    }
+
+    const updatedServer = await DiscordServer.findByIdAndUpdate(
+      invite.server,
+      { $addToSet: { members: { user: user._id } } },
+      { new: true }
+    );
+
+    await User.findByIdAndUpdate(user._id, {
+      $addToSet: { servers: invite.server },
+    });
+
+    return c.json({
+      message: "Joined server successfully!",
+      server: updatedServer,
+    });
+  } catch (error) {
+    console.error("Error in accepting invitation: ", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };

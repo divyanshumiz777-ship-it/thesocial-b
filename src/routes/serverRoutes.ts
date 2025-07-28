@@ -12,6 +12,8 @@ import {
   unBanMember,
   muteMember,
   unmuteMember,
+  createInvite,
+  acceptInvite,
 } from "../controllers/serverController.ts";
 
 export const serverRouter = new Hono();
@@ -28,3 +30,5 @@ serverRouter.put("/ban-member/:serverId", banMember);
 serverRouter.put("/unBan-member/:serverId", unBanMember);
 serverRouter.put("/mute-member/:serverId", muteMember);
 serverRouter.put("/unmute-member/:serverId", unmuteMember);
+serverRouter.post("/create-invite/:serverId", createInvite);
+serverRouter.put("/accept-invite/:serverId", acceptInvite);
