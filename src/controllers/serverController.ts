@@ -4,6 +4,8 @@ import Category from "../models/Category.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
 import User from "../models/User.ts";
+import { Server } from "socket.io";
+import { error } from "console";
 
 export const createServer = async (c: Context) => {
   const body = await c.req.json();
@@ -368,3 +370,124 @@ export const removeMember = async (c: Context) => {
     return c.json({ error: "Internal server error" }, 500);
   }
 };
+
+export const banMember = async (c: Context) => {
+  const { serverId } = c.req.param();
+  const { userId, reason, userToBanId } = await c.req.json();
+  const io: Server = c.get("io");
+  if (
+    !mongoose.Types.ObjectId.isValid(serverId) ||
+    !mongoose.Types.ObjectId.isValid(userId) ||
+    !mongoose.Types.ObjectId.isValid(userToBanId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+  if (!reason) return c.json({ error: "Reason is required" }, 400);
+  try {
+    const hasPermission = await DiscordServer.findOne({
+      _id: serverId,
+      members: {
+        $elemMatch: { user: userId, roles: { $in: ["ban member"] } },
+      },
+    });
+    if (!hasPermission)
+      return c.json(
+        { error: "You do not have permission to ban members." },
+        403
+      );
+
+    const userToBanExists = await User.findById(userToBanId);
+    if (!userToBanExists) return c.json({ error: "User does not exist" }, 404);
+
+    const userAlreadyBanned = await DiscordServer.findOne({
+      _id: serverId,
+      members: {
+        $elemMatch: { user: userToBanId, "banned.isBanned": true },
+      },
+    });
+    if (userAlreadyBanned)
+      return c.json({ error: "User is already banned" }, 400);
+
+    const updatedServer = await DiscordServer.findOneAndUpdate(
+      {
+        _id: serverId,
+        "members.user": userToBanId,
+      },
+      {
+        $set: {
+          "members.$.banned": {
+            isBanned: true,
+            reason: reason,
+            bannedBy: userId,
+          },
+        },
+      },
+      { new: true }
+    );
+    if (!updatedServer) return c.json({ error: "Server not found" }, 404);
+
+    await User.findOneAndUpdate(
+      {
+        _id: userToBanId,
+      },
+      {
+        $pull: {
+          servers: serverId,
+        },
+      }
+    );
+    io.to(serverId.toString()).emit("memberBanned", { userToBanId, serverId });
+    return c.json({ message: "Member banned successfully" }, 200);
+  } catch (error) {
+    console.error("Error banning member:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const unbanMember = async (c: Context) => {
+  const { serverId } = c.req.param();
+  const { userId, userToUnbanId } = await c.req.json();
+  if (
+    !mongoose.Types.ObjectId.isValid(serverId) ||
+    !mongoose.Types.ObjectId.isValid(userId) ||
+    !mongoose.Types.ObjectId.isValid(userToUnbanId)
+  )
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const hasPermission = await DiscordServer.findOne({
+      _id: serverId,
+      members: { $elemMatch: { user: userId, roles: "unban member" } },
+    });
+    if (!hasPermission)
+      return c.json(
+        { error: "You do not have permission to unban members." },
+        403
+      );
+    const userExists = await User.findById(userToUnbanId);
+    if (!userExists) return c.json({ error: "User does not exist" }, 404);
+    const userBanned = await DiscordServer.findOne({
+      _id: serverId,
+      members: {
+        $elemMatch: { user: userToUnbanId, "banned.isBanned": true },
+      },
+    });
+
+    if (!userBanned) return c.json({ error: "User is not banned" }, 400);
+    await DiscordServer.findOneAndUpdate(
+      {
+        _id: serverId,
+        "members.user": userToUnbanId,
+      },
+      { $unset: { "members.$.banned": "" } }
+    );
+    return c.json({ message: "User unbanned successfully" }, 200);
+  } catch (error) {
+    console.error("Error unbanning member:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const muteMember = async (c: Context) => {};
+
+export const unmuteMember = async (c: Context) => {};
