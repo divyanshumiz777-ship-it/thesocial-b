@@ -651,7 +651,10 @@ export const createInvite = async (c: Context) => {
       createdBy: user._id,
     });
 
-    return c.json({ inviteLink: `http://localhost:3000/invite/${code}` });
+    return c.json({
+      inviteLink: `http://localhost:3000/invite/${code}`,
+      newInvite,
+    });
   } catch (error) {
     console.error("Error creating invite:", error);
     return c.json({ error: "Internal server error" });

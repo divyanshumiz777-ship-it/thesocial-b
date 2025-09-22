@@ -1,7 +1,7 @@
 import { Context } from "hono";
 import mongoose from "mongoose";
-import Conversation from "../models/Conversation";
-import Message from "../models/Message";
+import Conversation from "../models/Conversation.ts";
+import Message from "../models/Message.ts";
 import { Server } from "socket.io";
 
 export const createDm = async (c: Context) => {

@@ -14,7 +14,6 @@ async function startServer() {
   try {
     await connectDB();
     console.log("Database connected successfully!");
-    98;
     const PORT = Number(process.env.PORT) || 8001;
 
     const httpServerInstance = serve({
@@ -25,7 +24,7 @@ async function startServer() {
     ioInstance = new Server(httpServerInstance, {
       cors: {
         origin: "*",
-        methods: ["GET", "POST"],
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       },
     });
 

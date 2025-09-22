@@ -1,9 +1,9 @@
 import { Context } from "hono";
 import mongoose, { Types } from "mongoose";
-import Thread from "../models/Thread";
-import Channel from "../models/Channel";
-import DiscordServer from "../models/DiscordServer";
-import Message from "../models/Message";
+import Thread from "../models/Thread.ts";
+import Channel from "../models/Channel.ts";
+import DiscordServer from "../models/DiscordServer.ts";
+import Message from "../models/Message.ts";
 import { Server } from "socket.io";
 
 const hasPermission = async (
