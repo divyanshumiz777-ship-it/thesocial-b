@@ -1,12 +1,8 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Server } from "socket.io";
 import { connectDB } from "./config/db.ts";
 import app from "./app.ts";
-
-const envFile =
-  process.env.NODE_ENV === "production" ? ".env.production" : ".env.local";
-dotenv.config({ path: envFile });
 
 let ioInstance: Server;
 
@@ -53,10 +49,18 @@ async function startServer() {
       });
 
       socket.on("disconnect", () => {
-        if (connectedServerId && connectedUserId)
+        if (connectedServerId && connectedUserId) {
           ioInstance
             .to(connectedServerId)
             .emit("user-disconnected", connectedUserId, Date.now());
+
+          for (const key of typingTimeouts.keys()) {
+            if (key.endsWith(`-${connectedUserId}`)) {
+              clearTimeout(typingTimeouts.get(key));
+              typingTimeouts.delete(key);
+            }
+          }
+        }
       });
     });
 

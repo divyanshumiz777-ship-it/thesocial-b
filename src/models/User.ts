@@ -10,6 +10,7 @@ interface IUser extends Document {
   profilePic?: string;
   dms?: Types.ObjectId[];
   provider: string;
+  providerAccountId?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
 }
@@ -31,7 +32,7 @@ const UserSchema = new Schema<IUser>({
     type: String,
     required: [
       function (this: any) {
-        return this.provider === "local";
+        return this.provider === "credentials";
       },
       "Password is required for local accounts",
     ],
@@ -44,7 +45,8 @@ const UserSchema = new Schema<IUser>({
   },
   dms: [{ type: Schema.Types.ObjectId, ref: "DirectMessage" }],
   lastSeen: { type: Date, default: Date.now },
-  provider: { type: String, default: "local" },
+  provider: { type: String, default: "credentials" },
+  providerAccountId: { type: String },
   servers: [{ type: Schema.Types.ObjectId, ref: "DiscordServer" }],
   roles: [{ type: Schema.Types.ObjectId, ref: "Role" }],
   resetPasswordToken: { type: String },
@@ -52,4 +54,5 @@ const UserSchema = new Schema<IUser>({
 });
 
 const User = mongoose.model<IUser>("User", UserSchema);
+
 export default User;

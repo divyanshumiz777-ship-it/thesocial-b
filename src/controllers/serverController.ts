@@ -8,61 +8,367 @@ import { Server } from "socket.io";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { nanoid } from "nanoid";
 import Invite from "../models/Invite.ts";
+import { checkPermission } from "../lib/permissionHelper.ts";
+import { Buffer } from "node:buffer";
 
-export const createServer = async (c: Context) => {
-  const body = await c.req.json();
-  const { serverName, user } = body;
+interface UserPayload {
+  id: string;
+  email: string;
+}
 
-  if (!serverName || !user?._id) {
-    return c.json({ error: "Server name and user ID are required" }, 400);
+export const createServer = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const user = c.get("user");
+  const body = await c.req.formData();
+  const serverName = body.get("name") as string;
+  const imageFile = body.get("imageFile") as File;
+  const description = body.get("description") as string;
+
+  if (!serverName) {
+    return c.json({ error: "Server name is required" }, 400);
   }
 
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
+    let imageUrl = "";
+    if (imageFile && imageFile.size > 0) {
+      const arrayBuffer = await imageFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const cloudinaryResponse = await uploadOnCloudinary(buffer, {
+        folder: "server_icons",
+      });
+      if (!cloudinaryResponse) {
+        throw new Error("Failed to upload image");
+      }
+      imageUrl = cloudinaryResponse.secure_url;
+    }
+
     const newServer = new DiscordServer({
       name: serverName,
-      owner: user._id,
-      categories: [],
-      channels: [],
-      members: [user._id],
+      description,
+      imageUrl,
+      owner: user.id,
+      members: [{ user: user.id, roles: ["owner"] }],
     });
-    await newServer.save();
+    await newServer.save({ session });
 
-    const textCategoryDoc = await Category.create({
-      name: "Text Channels",
-      server: newServer._id,
-    });
-    const textCategoryId = new mongoose.Types.ObjectId(textCategoryDoc._id);
+    const [notesCategory, socialCategory, doubtsCategory] =
+      await Category.create(
+        [
+          { name: "Notes", server: newServer._id },
+          { name: "Social Zone", server: newServer._id },
+          { name: "Doubts", server: newServer._id },
+        ],
+        { session, ordered: true }
+      );
 
-    const voiceCategoryDoc = await Category.create({
-      name: "Voice Channels",
-      server: newServer._id,
-    });
-    const voiceCategoryId = new mongoose.Types.ObjectId(voiceCategoryDoc._id);
+    const [notesChannel, socialChannel, doubtsChannel] = await Channel.create(
+      [
+        {
+          name: "notes",
+          type: "Text",
+          category: notesCategory._id,
+          server: newServer._id,
+        },
+        {
+          name: "social-zone",
+          type: "Text",
+          category: socialCategory._id,
+          server: newServer._id,
+        },
+        {
+          name: "doubts",
+          type: "Text",
+          category: doubtsCategory._id,
+          server: newServer._id,
+        },
+      ],
+      { session, ordered: true }
+    );
 
-    const generalTextChannel = await Channel.create({
-      name: "general",
-      type: "Text",
-      category: textCategoryId,
-      server: newServer._id,
-    });
+    await Promise.all([
+      Category.findByIdAndUpdate(
+        notesCategory._id,
+        { $push: { channels: notesChannel._id } },
+        { session }
+      ),
+      Category.findByIdAndUpdate(
+        socialCategory._id,
+        { $push: { channels: socialChannel._id } },
+        { session }
+      ),
+      Category.findByIdAndUpdate(
+        doubtsCategory._id,
+        { $push: { channels: doubtsChannel._id } },
+        { session }
+      ),
+    ]);
 
-    const generalVoiceChannel = await Channel.create({
-      name: "General",
-      type: "Voice",
-      category: voiceCategoryId,
-      server: newServer._id,
-    });
+    newServer.categories = [
+      notesCategory._id,
+      socialCategory._id,
+      doubtsCategory._id,
+    ];
+    newServer.channels = [
+      notesChannel._id,
+      socialChannel._id,
+      doubtsChannel._id,
+    ];
+    await newServer.save({ session });
 
-    newServer.categories = [textCategoryId, voiceCategoryId];
-    newServer.channels = [generalTextChannel._id, generalVoiceChannel._id];
-    await newServer.save();
+    await User.findByIdAndUpdate(
+      user.id,
+      { $addToSet: { servers: newServer._id } },
+      { session }
+    );
+
+    const populatedServer = await DiscordServer.findById(newServer._id)
+      .populate({
+        path: "categories",
+        populate: {
+          path: "channels",
+          model: "Channel",
+        },
+      })
+      .session(session);
+
+    await session.commitTransaction();
 
     return c.json(
-      { message: "Server created successfully", server: newServer },
+      { message: "Server created successfully", server: populatedServer },
       201
     );
   } catch (error) {
+    await session.abortTransaction();
     console.error("Error creating server:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  } finally {
+    session.endSession();
+  }
+};
+
+export const searchServers = async (c: Context) => {
+  const searchTerm = c.req.query("q");
+
+  if (!searchTerm || searchTerm.trim() === "") {
+    return c.json({ servers: [] }, 200);
+  }
+
+  try {
+    const searchWords = searchTerm.trim().split(/\s+/);
+    const regexConditions = searchWords.map((word) => ({
+      name: new RegExp(word, "i"),
+    }));
+    const servers = await DiscordServer.find({ $and: regexConditions })
+      .limit(20)
+      .populate({ path: "owner", select: "name profilePic" });
+
+    return c.json({ servers }, 200);
+  } catch (error) {
+    console.error("Error searching servers:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const getServerById = async (c: Context) => {
+  const { id: serverId } = c.req.param();
+
+  try {
+    const server = await DiscordServer.findById(serverId)
+      .populate({
+        path: "owner",
+        select: "name profilePic",
+      })
+      .populate({
+        path: "members.user",
+        select: "name profilePic",
+      })
+      .populate({
+        path: "categories",
+        populate: {
+          path: "channels",
+          model: "Channel",
+        },
+      });
+
+    if (!server) {
+      return c.json({ message: "Server not found" }, 404);
+    }
+
+    // This permission check can now be simplified
+    // const isMember = server.members.some(
+    //   (member: any) => member.user._id.toString() === user.id
+    // );
+
+    // if (!isMember && server.owner._id.toString() !== user.id) {
+    //   return c.json({ error: "Access denied" }, 403);
+    // }
+
+    return c.json({ server }, 200);
+  } catch (error) {
+    console.error("Error fetching server details:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const editServer = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+
+  if (!(await checkPermission(serverId, user.id, "edit server"))) {
+    return c.json({ error: "Permission denied" }, 403);
+  }
+
+  try {
+    const body = await c.req.formData();
+    const newName = body.get("name") as string;
+    const imageFile = body.get("imageFile") as File;
+    const updates: { name?: string; imageUrl?: string } = {};
+
+    if (newName) updates.name = newName;
+
+    if (imageFile && imageFile.size > 0) {
+      const arrayBuffer = await imageFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const cloudinaryResponse = await uploadOnCloudinary(buffer, {
+        folder: "server_icons",
+      });
+      if (!cloudinaryResponse)
+        return c.json({ error: "Failed to upload image" }, 500);
+      updates.imageUrl = cloudinaryResponse.secure_url;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return c.json({ error: "No update data provided" }, 400);
+    }
+
+    const updatedServer = await DiscordServer.findByIdAndUpdate(
+      serverId,
+      { $set: updates },
+      { new: true }
+    );
+
+    return c.json(
+      { message: "Server updated successfully", server: updatedServer },
+      200
+    );
+  } catch (error) {
+    console.error("Error updating server:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const deleteServer = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+
+  const server = await DiscordServer.findById(serverId);
+  if (!server) return c.json({ error: "Server not found" }, 404);
+  if (server.owner.toString() !== user.id) {
+    return c.json(
+      { error: "Only the server owner can delete the server" },
+      403
+    );
+  }
+
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
+
+    await Channel.deleteMany({ server: serverId }, { session });
+    await Category.deleteMany({ server: serverId }, { session });
+    await Invite.deleteMany({ server: serverId }, { session });
+    await User.updateMany(
+      { servers: serverId },
+      { $pull: { servers: serverId } },
+      { session }
+    );
+    await DiscordServer.findByIdAndDelete(serverId, { session });
+
+    await session.commitTransaction();
+    return c.json({ message: "Server deleted successfully" }, 200);
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Error deleting server:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  } finally {
+    session.endSession();
+  }
+};
+
+export const createInvite = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+
+  if (!(await checkPermission(serverId, user.id, "create invite"))) {
+    return c.json({ error: "Permission denied" }, 403);
+  }
+
+  try {
+    const code = nanoid(10);
+    const newInvite = await Invite.create({
+      code,
+      server: serverId,
+      createdBy: user.id,
+    });
+    const inviteLink = `${
+      process.env.FRONTEND_URL || "http://localhost:3000"
+    }/invite/${code}`;
+
+    return c.json({ inviteLink, invite: newInvite }, 201);
+  } catch (error) {
+    console.error("Error creating invite:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const acceptInvite = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { inviteCode } = c.req.param();
+  const user = c.get("user");
+
+  try {
+    const invite = await Invite.findOne({ code: inviteCode });
+    if (!invite) return c.json({ error: "Invalid invite code" }, 404);
+    if (invite.expiresAt && invite.expiresAt < new Date()) {
+      return c.json({ error: "This invite has expired" }, 400);
+    }
+
+    const serverId = invite.server;
+    const isAlreadyMember = await DiscordServer.findOne({
+      _id: serverId,
+      "members.user": user.id,
+    });
+    if (isAlreadyMember) {
+      return c.json({
+        message: "You are already a member of this server",
+        server: isAlreadyMember,
+      });
+    }
+
+    const updatedServer = await DiscordServer.findByIdAndUpdate(
+      serverId,
+      { $addToSet: { members: { user: user.id, roles: ["member"] } } }, // Assign a default role
+      { new: true }
+    );
+    await User.findByIdAndUpdate(user.id, { $addToSet: { servers: serverId } });
+
+    return c.json({
+      message: "Joined server successfully!",
+      server: updatedServer,
+    });
+  } catch (error) {
+    console.error("Error accepting invite:", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };
@@ -95,161 +401,6 @@ export const getAllServers = async (c: Context) => {
     );
   } catch (error) {
     console.error("Error fetching servers: ", error);
-    return c.json({ error: "Internal server error" }, 500);
-  }
-};
-export const getServer = async (c: Context) => {
-  const { id } = c.req.param();
-  try {
-    const server = await DiscordServer.findById(id)
-      .populate("members", "username avatar")
-      .populate({
-        path: "categories",
-        populate: {
-          path: "channels",
-          model: "Channel",
-        },
-      });
-
-    if (!server) return c.json({ message: "No such server exists" }, 404);
-    return c.json({ server: server }, 200);
-  } catch (error) {
-    console.error("Error fetching server: ", error);
-    return c.json({ error: "Internal server error" }, 500);
-  }
-};
-
-export const editServer = async (c: Context) => {
-  const { id } = c.req.param();
-  const body = await c.req.json();
-  const {
-    name,
-    category,
-    channel,
-    categoryType,
-    channelCategoryId,
-    user,
-    profilePicFile,
-  } = body;
-
-  try {
-    const hasPermission = await DiscordServer.findOne({
-      _id: id,
-      members: {
-        $elemMatch: { user: user._id, roles: "edit server" },
-      },
-    });
-    if (!hasPermission) {
-      return c.json({ error: "Permission denied or server not found." }, 403);
-    }
-
-    if (name) {
-      await DiscordServer.findByIdAndUpdate(id, { $set: { name } });
-    }
-
-    if (category) {
-      const newCategory = await Category.create({ name, server: id });
-      await DiscordServer.findByIdAndUpdate(id, {
-        $push: { categories: newCategory._id },
-      });
-    }
-
-    if (channel) {
-      let assignedCategoryId = channelCategoryId;
-      if (!assignedCategoryId) {
-        const uncategorized = await Category.findOneAndUpdate(
-          {
-            name: "Uncategorized",
-            server: id,
-          },
-          {
-            $setOnInsert: { name: "Uncategorized", server: id },
-          },
-          {
-            upsert: true,
-            new: true,
-          }
-        );
-      }
-      const newChannel = await Channel.create({
-        name: channel,
-        type: categoryType,
-        category: assignedCategoryId,
-        server: id,
-      });
-      await DiscordServer.findByIdAndUpdate(id, {
-        $push: { channels: newChannel._id },
-      });
-      await Category.findByIdAndUpdate(assignedCategoryId, {
-        $push: { channels: newChannel._id },
-      });
-    }
-
-    const updatedServer = await DiscordServer.findById(id);
-    if (!updatedServer) return c.json({ error: "Server not found" }, 404);
-
-    if (profilePicFile && profilePicFile.size > 0) {
-      try {
-        const arrayBuffer = await profilePicFile.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-
-        const cloudinaryResponse = await uploadOnCloudinary(buffer, {
-          folder: "profile_pics",
-          resource_type: "image",
-        });
-
-        if (cloudinaryResponse) {
-          updatedServer.profilePic = cloudinaryResponse.secure_url;
-        }
-      } catch (error) {
-        console.error("Error uploading profile picture to Cloudinary:", error);
-        return c.json({ error: "Failed to upload profile picture" }, 500);
-      }
-    }
-
-    return c.json(
-      { message: "Server updated successfully", server: updatedServer },
-      200
-    );
-  } catch (error) {
-    console.error("Error updating server: ", error);
-    return c.json({ error: "Internal server error" }, 500);
-  }
-};
-export const deleteServer = async (c: Context) => {
-  const { id } = c.req.param();
-  const { user } = await c.req.json();
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    return c.json({ error: "Invalid server ID format" }, 400);
-  }
-  try {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-    const hasPermission = await DiscordServer.findOne({
-      _id: id,
-      members: {
-        $elemMatch: { user: user._id, roles: "delete server" },
-      },
-    });
-    if (!hasPermission) {
-      return c.json({ error: "Permission denied or server not found." }, 403);
-    }
-
-    const deletedServer = await DiscordServer.findByIdAndDelete(id, {
-      session,
-    });
-
-    if (!deletedServer) return c.json({ error: "Server not found" }, 404);
-
-    await Category.deleteMany({ server: id }, { session });
-    await Channel.deleteMany({ server: id }, { session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return c.json({ message: "Server deleted successfully" }, 200);
-  } catch (error) {
-    console.error("Error deleting server: ", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };
@@ -625,71 +776,6 @@ export const unmuteMember = async (c: Context) => {
     return c.json({ message: "Member unmuted successfully" }, 200);
   } catch (error) {
     console.error("Error unmuting member:", error);
-    return c.json({ error: "Internal server error" }, 500);
-  }
-};
-
-export const createInvite = async (c: Context) => {
-  const { serverId, user } = await c.req.json();
-  const code = nanoid(10);
-  if (!mongoose.Types.ObjectId.isValid(serverId)) {
-    return c.json({ error: "Invalid server ID format" }, 400);
-  }
-  try {
-    const hasPermission = await DiscordServer.findOne({
-      _id: serverId,
-      members: {
-        $elemMatch: { user: user._id, roles: "create invite" },
-      },
-    });
-    if (!hasPermission) {
-      return c.json({ error: "Permission denied or server not found." }, 403);
-    }
-    const newInvite = await Invite.create({
-      code,
-      server: serverId,
-      createdBy: user._id,
-    });
-
-    return c.json({
-      inviteLink: `http://localhost:3000/invite/${code}`,
-      newInvite,
-    });
-  } catch (error) {
-    console.error("Error creating invite:", error);
-    return c.json({ error: "Internal server error" });
-  }
-};
-export const acceptInvite = async (c: Context) => {
-  const { inviteCode } = c.req.param();
-  const { user } = await c.req.json();
-
-  try {
-    const invite = await Invite.findOne({ code: inviteCode });
-
-    if (!invite) {
-      return c.json({ error: "Invalid invite code." }, 404);
-    }
-    if (invite.expiresAt && invite.expiresAt < new Date()) {
-      return c.json({ error: "This invite has expired." }, 400);
-    }
-
-    const updatedServer = await DiscordServer.findByIdAndUpdate(
-      invite.server,
-      { $addToSet: { members: { user: user._id } } },
-      { new: true }
-    );
-
-    await User.findByIdAndUpdate(user._id, {
-      $addToSet: { servers: invite.server },
-    });
-
-    return c.json({
-      message: "Joined server successfully!",
-      server: updatedServer,
-    });
-  } catch (error) {
-    console.error("Error in accepting invitation: ", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };

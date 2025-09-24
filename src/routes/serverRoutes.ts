@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import {
   getAllServers,
-  getServer,
   createServer,
   editServer,
   deleteServer,
@@ -14,13 +13,17 @@ import {
   unmuteMember,
   createInvite,
   acceptInvite,
+  searchServers,
+  getServerById,
 } from "../controllers/serverController.ts";
+import { authMiddleware } from "../middleware/authMiddleware.ts";
 
 export const serverRouter = new Hono();
 
+serverRouter.post("/create-server", authMiddleware, createServer);
 serverRouter.get("/all-servers", getAllServers);
-serverRouter.get("/get-server/:id", getServer);
-serverRouter.post("/create-server", createServer);
+serverRouter.get("/get-server/:id", authMiddleware, getServerById);
+serverRouter.get("/search-servers", searchServers);
 serverRouter.delete("delete-server/:id", deleteServer);
 serverRouter.put("/edit-server/:id", editServer);
 serverRouter.put("/edit-member-role/:serverId", editMemberRole);
