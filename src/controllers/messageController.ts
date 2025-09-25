@@ -14,10 +14,12 @@ export const createMessage = async (c: Context) => {
       return c.json({ error: "Socket.IO instance not available" }, 500);
     }
     const { channelId } = c.req.param();
+    const user = c.get("user");
+
     const formData = await c.req.formData();
 
     const content = formData.get("content") as string;
-    const senderId = formData.get("senderId") as string;
+    const senderId = user.id;
     const serverId = formData.get("serverId") as string;
     const attachmentFile = formData.get("attachment") as File | null;
     const mentionsString = formData.get("mentions") as string | null;
@@ -30,25 +32,25 @@ export const createMessage = async (c: Context) => {
     ) {
       return c.json({ error: "Invalid ID format" }, 400);
     }
-    const canUserSendMessages = await DiscordServer.findOne({
-      _id: serverId,
-      members: {
-        $elemMatch: {
-          user: senderId,
-          "muted.isMuted": { $ne: true },
-          "banned.isBanned": { $ne: true },
-          roles: "send messages",
-        },
-      },
-    });
-    if (!canUserSendMessages) {
-      return c.json(
-        {
-          error: "You do not have permission to send messages in this server.",
-        },
-        403
-      );
-    }
+    // const canUserSendMessages = await DiscordServer.findOne({
+    //   _id: serverId,
+    //   members: {
+    //     $elemMatch: {
+    //       user: senderId,
+    //       "muted.isMuted": { $ne: true },
+    //       "banned.isBanned": { $ne: true },
+    //       roles: "send messages",
+    //     },
+    //   },
+    // });
+    // if (!canUserSendMessages) {
+    //   return c.json(
+    //     {
+    //       error: "You do not have permission to send messages in this server.",
+    //     },
+    //     403
+    //   );
+    // }
     const attachments = [];
     if (attachmentFile) {
       const arrayBuffer = await attachmentFile.arrayBuffer();
@@ -117,10 +119,8 @@ export const getMessagesByChannelId = async (c: Context) => {
       .skip(skip)
       .limit(limit)
       .populate("sender");
-    if (messages.length === 0) {
-      return c.json({ message: "No messages found for this channel" }, 404);
-    }
-    return c.json(messages, 200);
+
+    return c.json(messages || [], 200);
   } catch (error) {
     console.error("Error fetching messages:", error);
     return c.json({ error: "Failed to fetch messages" }, 500);
