@@ -3,7 +3,6 @@ import { Server } from "socket.io";
 import Message from "../models/Message.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
-import DiscordServer from "../models/DiscordServer.ts";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { Buffer } from "node:buffer";
 
@@ -14,6 +13,7 @@ export const createMessage = async (c: Context) => {
       return c.json({ error: "Socket.IO instance not available" }, 500);
     }
     const { channelId } = c.req.param();
+
     const user = c.get("user");
 
     const formData = await c.req.formData();
@@ -67,8 +67,8 @@ export const createMessage = async (c: Context) => {
     }
 
     const newMessage = await Message.create({
-      channelId,
-      serverId,
+      channel: channelId,
+      server: serverId,
       sender: senderId,
       content,
       mentions,
@@ -104,6 +104,8 @@ export const createMessage = async (c: Context) => {
 
 export const getMessagesByChannelId = async (c: Context) => {
   const { channelId } = c.req.param();
+  console.log(channelId);
+
   const page = parseInt(c.req.query("page") || "1");
   const limit = parseInt(c.req.query("limit") || "50");
   const skip = (page - 1) * limit;
@@ -119,6 +121,8 @@ export const getMessagesByChannelId = async (c: Context) => {
       .skip(skip)
       .limit(limit)
       .populate("sender");
+
+    console.log(messages);
 
     return c.json(messages || [], 200);
   } catch (error) {
