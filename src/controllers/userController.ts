@@ -109,9 +109,10 @@ export const deleteUser = async (c: Context) => {
 };
 
 export const joinServer = async (c: Context) => {
-  const { id } = c.req.param();
-  const body = await c.req.json();
-  const { serverId } = body;
+  const user = c.get("user");
+  console.log(user);
+  const id = user.id;
+  const { id: serverId } = c.req.param();
 
   if (
     !mongoose.Types.ObjectId.isValid(id) ||
@@ -121,6 +122,8 @@ export const joinServer = async (c: Context) => {
   }
 
   const serverExists = await DiscordServer.findById(serverId);
+  console.log(serverExists);
+
   if (!serverExists) {
     return c.json({ error: "Server not found" }, 404);
   }
@@ -142,14 +145,6 @@ export const joinServer = async (c: Context) => {
       return c.json({ error: "User not found" }, 404);
     }
     io.to(serverId).emit("userJoined", updatedUser);
-    Notification.requestPermission().then((perm) => {
-      if (perm === "granted") {
-        new Notification("Server", {
-          body: `Joined ${updatedServer?.name}`,
-          icon: "",
-        });
-      }
-    });
     return c.json(
       { message: "Joined server successfully", server: updatedServer },
       200
@@ -161,9 +156,11 @@ export const joinServer = async (c: Context) => {
 };
 
 export const leaveServer = async (c: Context) => {
-  const { id } = c.req.param();
-  const body = await c.req.json();
-  const { serverId } = body;
+  const user = c.get("user");
+  const id = user.id;
+  const { id: serverId } = c.req.param();
+
+  console.log(id, serverId);
 
   if (
     !mongoose.Types.ObjectId.isValid(id) ||
@@ -172,7 +169,9 @@ export const leaveServer = async (c: Context) => {
     return c.json({ error: "Invalid user ID or server ID format" }, 400);
   }
 
-  const serverExists = await User.findById(serverId);
+  const serverExists = await DiscordServer.findById(serverId);
+  console.log(serverExists);
+
   if (!serverExists) {
     return c.json({ error: "Server not found" }, 404);
   }
@@ -198,6 +197,42 @@ export const leaveServer = async (c: Context) => {
     );
   } catch (error) {
     console.error("Error leaving server:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const userServers = async (c: Context) => {
+  const { id } = c.get("user");
+
+  const page = parseInt(c.req.query("page") || "1", 10);
+  const limit = parseInt(c.req.query("limit") || "10", 10);
+  const skip = (page - 1) * limit;
+
+  try {
+    const totalServers = await DiscordServer.countDocuments({
+      members: { $elemMatch: { user: id } },
+    });
+
+    const servers = await DiscordServer.find({
+      members: { $elemMatch: { user: id } },
+    })
+      .skip(skip)
+      .limit(limit);
+
+    if (servers.length === 0 && totalServers === 0) {
+      return c.json({
+        servers: [],
+        totalPages: 0,
+        currentPage: page,
+      });
+    }
+    return c.json({
+      servers,
+      totalPages: Math.ceil(totalServers / limit),
+      currentPage: page,
+    });
+  } catch (error) {
+    console.error("Error fetching user servers:", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };

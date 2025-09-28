@@ -35,6 +35,7 @@ export interface IDiscordServer {
   owner: Types.ObjectId;
   categories: Types.ObjectId[];
   channels: Types.ObjectId[];
+  visibility: "public" | "private" | "invite-only";
   name: string;
   description: string;
   members: IMember[];

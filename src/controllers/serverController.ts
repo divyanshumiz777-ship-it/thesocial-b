@@ -24,6 +24,7 @@ export const createServer = async (
   const serverName = body.get("name") as string;
   const imageFile = body.get("imageFile") as File;
   const description = body.get("description") as string;
+  const serverType = body.get("serverType") as string;
 
   if (!serverName) {
     return c.json({ error: "Server name is required" }, 400);
@@ -51,6 +52,7 @@ export const createServer = async (
       description,
       imageUrl,
       owner: user.id,
+      serverType,
       members: [{ user: user.id, roles: ["owner"] }],
     });
     await newServer.save({ session });

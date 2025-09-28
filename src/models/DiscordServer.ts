@@ -37,6 +37,11 @@ const DiscordServerSchema = new Schema<IDiscordServer>(
     channels: [{ type: Schema.Types.ObjectId, ref: "Channel" }],
     name: { type: String, required: true, maxLength: 100 },
     description: { type: String, maxLength: 500 },
+    visibility: {
+      type: String,
+      enum: ["public", "private", "invite-only"],
+      default: "public",
+    },
     imageUrl: { type: String },
     members: [memberSchema],
     onlineCount: { type: Number, default: 0 },
