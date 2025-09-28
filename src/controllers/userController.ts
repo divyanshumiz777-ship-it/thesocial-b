@@ -110,7 +110,6 @@ export const deleteUser = async (c: Context) => {
 
 export const joinServer = async (c: Context) => {
   const user = c.get("user");
-  console.log(user);
   const id = user.id;
   const { id: serverId } = c.req.param();
 
@@ -122,7 +121,6 @@ export const joinServer = async (c: Context) => {
   }
 
   const serverExists = await DiscordServer.findById(serverId);
-  console.log(serverExists);
 
   if (!serverExists) {
     return c.json({ error: "Server not found" }, 404);
@@ -160,8 +158,6 @@ export const leaveServer = async (c: Context) => {
   const id = user.id;
   const { id: serverId } = c.req.param();
 
-  console.log(id, serverId);
-
   if (
     !mongoose.Types.ObjectId.isValid(id) ||
     !mongoose.Types.ObjectId.isValid(serverId)
@@ -170,7 +166,6 @@ export const leaveServer = async (c: Context) => {
   }
 
   const serverExists = await DiscordServer.findById(serverId);
-  console.log(serverExists);
 
   if (!serverExists) {
     return c.json({ error: "Server not found" }, 404);

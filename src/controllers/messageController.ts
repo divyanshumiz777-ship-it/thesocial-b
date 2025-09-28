@@ -104,7 +104,6 @@ export const createMessage = async (c: Context) => {
 
 export const getMessagesByChannelId = async (c: Context) => {
   const { channelId } = c.req.param();
-  console.log(channelId);
 
   const page = parseInt(c.req.query("page") || "1");
   const limit = parseInt(c.req.query("limit") || "50");
@@ -121,8 +120,6 @@ export const getMessagesByChannelId = async (c: Context) => {
       .skip(skip)
       .limit(limit)
       .populate("sender");
-
-    console.log(messages);
 
     return c.json(messages || [], 200);
   } catch (error) {
