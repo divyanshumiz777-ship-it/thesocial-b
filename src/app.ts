@@ -10,7 +10,7 @@ import { messageRouter } from "./routes/messageRoutes.ts";
 import { dmRouter } from "./routes/dmRoutes.ts";
 import { threadRouter } from "./routes/threadRoutes.ts";
 
-import { getIoInstance } from "./server.ts";
+import { getIoInstance } from "./config/socket.ts";
 const app = new Hono();
 
 app.use(async (c: Context, next) => {
@@ -35,7 +35,7 @@ app.use(
 app.get("/", (c) => c.text("Hello World from Hono App!"));
 
 app.route("/api/v1/auth", authRouter);
-app.route("/api/v1/profile", userRouter);
+app.route("/api/v1/user", userRouter);
 app.route("/api/v1/server", serverRouter);
 app.route("/api/v1/category", categoryRouter);
 app.route("/api/v1/channel", channelRouter);

@@ -2,6 +2,7 @@ import {
   v2 as cloudinary,
   UploadApiResponse,
   UploadApiErrorResponse,
+  UploadApiOptions,
 } from "cloudinary";
 import { Readable } from "stream";
 
@@ -10,12 +11,15 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+type CloudinaryUploadOptions = Pick<
+  UploadApiOptions,
+  "resource_type" | "folder" | "public_id"
+>;
+
 const uploadOnCloudinary = (
   buffer: Buffer,
-  options: {
-    resource_type?: "auto" | "image" | "video" | "raw";
-    folder?: string;
-  }
+  options: CloudinaryUploadOptions
 ): Promise<UploadApiResponse> => {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
@@ -35,4 +39,5 @@ const uploadOnCloudinary = (
     Readable.from(buffer).pipe(uploadStream);
   });
 };
+
 export { uploadOnCloudinary };

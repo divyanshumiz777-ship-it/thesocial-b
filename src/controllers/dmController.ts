@@ -6,7 +6,7 @@ import { Server } from "socket.io";
 
 export const createDm = async (c: Context) => {
   const { senderId, receiverId, content } = await c.req.json();
-  const io: Server = c.get("io");
+  const io = c.get("io") as Server | undefined;
 
   if (!senderId || !receiverId || !content) {
     return c.json({ error: "Missing required fields" }, 400);
@@ -19,11 +19,15 @@ export const createDm = async (c: Context) => {
   }
 
   try {
-    const conversation = await Conversation.findOneAndUpdate(
-      { participants: { $all: [senderId, receiverId] } },
-      { $setOnInsert: { participants: [senderId, receiverId] } },
-      { upsert: true, new: true }
-    );
+    const participants = [senderId, receiverId].sort();
+
+    let conversation = await Conversation.findOne({
+      participants: { $all: participants },
+    });
+
+    if (!conversation) {
+      conversation = await Conversation.create({ participants });
+    }
 
     const newMessage = await Message.create({
       content,
@@ -35,7 +39,9 @@ export const createDm = async (c: Context) => {
       $push: { messages: newMessage._id },
     });
 
-    io.to(conversation._id.toString()).emit("newMessage", newMessage);
+    if (io) {
+      io.to(conversation._id.toString()).emit("dm:new-message", newMessage);
+    }
 
     return c.json(newMessage, 201);
   } catch (error) {
@@ -72,7 +78,7 @@ export const getDm = async (c: Context) => {
 export const editMessage = async (c: Context) => {
   const { conversationId } = c.req.param();
   const { content, user, messageId } = await c.req.json();
-  const io: Server = c.get("io");
+  const io = c.get("io") as Server | undefined;
 
   if (!content) {
     return c.json({ error: "Content is required" }, 400);
@@ -98,7 +104,9 @@ export const editMessage = async (c: Context) => {
       );
     }
 
-    io.to(conversationId).emit("messageUpdated", updatedMessage);
+    if (io) {
+      io.to(conversationId).emit("messageUpdated", updatedMessage);
+    }
 
     return c.json(updatedMessage, 200);
   } catch (error) {
@@ -115,7 +123,7 @@ export const deleteMessage = async (c: Context) => {
     !mongoose.Types.ObjectId.isValid(userId)
   )
     return c.json({ error: "Invalid ID format" }, 400);
-  const io: Server = c.get("io");
+  const io = c.get("io") as Server | undefined;
   try {
     const deletedMessage = await Message.findOneAndDelete({
       _id: messageId,
@@ -127,7 +135,9 @@ export const deleteMessage = async (c: Context) => {
     await Conversation.findByIdAndUpdate(conversationId, {
       $pull: { messages: messageId },
     });
-    io.to(conversationId).emit("messageDeleted", messageId);
+    if (io) {
+      io.to(conversationId).emit("messageDeleted", messageId);
+    }
   } catch (error) {
     console.error("Error deleting message:", error);
     return c.json({ error: "Failed to delete message" }, 500);
@@ -136,7 +146,7 @@ export const deleteMessage = async (c: Context) => {
 export const deleteDm = async (c: Context) => {
   const { conversationId } = c.req.param();
   const { user } = await c.req.json();
-  const io: Server = c.get("io");
+  const io = c.get("io") as Server | undefined;
   if (!mongoose.Types.ObjectId.isValid(conversationId))
     return c.json({ error: "Invalid ID format" }, 400);
   try {
@@ -160,7 +170,9 @@ export const deleteDm = async (c: Context) => {
       });
       await Conversation.findByIdAndDelete(conversationId);
     } else {
-      io.to(conversationId).emit("conversationUpdated", deletedConversation);
+      if (io) {
+        io.to(conversationId).emit("conversationUpdated", deletedConversation);
+      }
     }
     return c.json({ message: "DM deleted successfully" }, 200);
   } catch (error) {
@@ -172,7 +184,7 @@ export const deleteDm = async (c: Context) => {
 export const toggleReaction = async (c: Context) => {
   const { messageId } = c.req.param();
   const { emoji, user, channelId } = await c.req.json();
-  const io: Server = c.get("io");
+  const io = c.get("io") as Server | undefined;
   if (
     !mongoose.Types.ObjectId.isValid(messageId) ||
     !mongoose.Types.ObjectId.isValid(channelId)
@@ -204,7 +216,9 @@ export const toggleReaction = async (c: Context) => {
     }
     await message.save();
 
-    io.to(channelId).emit("reactionUpdated", message);
+    if (io) {
+      io.to(channelId).emit("reactionUpdated", message);
+    }
 
     return c.json({ message: "Reaction updated successfully" }, 200);
   } catch (error) {

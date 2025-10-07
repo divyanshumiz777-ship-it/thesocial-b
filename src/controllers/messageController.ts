@@ -9,13 +9,10 @@ import { Buffer } from "node:buffer";
 export const createMessage = async (c: Context) => {
   try {
     const io: Server = c.get("io");
-    if (!io) {
-      return c.json({ error: "Socket.IO instance not available" }, 500);
-    }
+    if (!io) return c.json({ error: "Socket.IO instance not available" }, 500);
+
     const { channelId } = c.req.param();
-
     const user = c.get("user");
-
     const formData = await c.req.formData();
 
     const content = formData.get("content") as string;
@@ -24,6 +21,15 @@ export const createMessage = async (c: Context) => {
     const attachmentFile = formData.get("attachment") as File | null;
     const mentionsString = formData.get("mentions") as string | null;
     const mentions = mentionsString ? JSON.parse(mentionsString) : [];
+    console.log(
+      content,
+      senderId,
+      channelId,
+      serverId,
+      mentions,
+      attachmentFile,
+      mentionsString
+    );
 
     if (
       !mongoose.Types.ObjectId.isValid(channelId) ||
@@ -77,6 +83,10 @@ export const createMessage = async (c: Context) => {
     const populatedMessage = await Message.findById(newMessage._id).populate(
       "sender"
     );
+
+    if (!populatedMessage) {
+      return c.json({ error: "Failed to retrieve the created message" }, 500);
+    }
 
     io.to(channelId).emit("message", populatedMessage);
 

@@ -25,6 +25,7 @@ export const createServer = async (
   const imageFile = body.get("imageFile") as File;
   const description = body.get("description") as string;
   const serverType = body.get("serverType") as string;
+  console.log(serverType);
 
   if (!serverName) {
     return c.json({ error: "Server name is required" }, 400);
@@ -52,7 +53,7 @@ export const createServer = async (
       description,
       imageUrl,
       owner: user.id,
-      serverType,
+      visibility: serverType,
       members: [{ user: user.id, roles: ["owner"] }],
     });
     await newServer.save({ session });
@@ -179,6 +180,10 @@ export const getServerById = async (c: Context) => {
   const { id: serverId } = c.req.param();
 
   try {
+    if (!mongoose.Types.ObjectId.isValid(serverId)) {
+      return c.json({ error: "Invalid server id" }, 400);
+    }
+
     const server = await DiscordServer.findById(serverId)
       .populate({
         path: "owner",
@@ -200,7 +205,6 @@ export const getServerById = async (c: Context) => {
       return c.json({ message: "Server not found" }, 404);
     }
 
-    // This permission check can now be simplified
     // const isMember = server.members.some(
     //   (member: any) => member.user._id.toString() === user.id
     // );

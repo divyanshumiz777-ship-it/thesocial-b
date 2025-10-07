@@ -2,39 +2,88 @@ import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Server } from "socket.io";
 import { connectDB } from "./config/db.ts";
+import { setIoInstance } from "./config/socket.ts";
 import app from "./app.ts";
-
-let ioInstance: Server;
 
 async function startServer() {
   try {
     await connectDB();
     console.log("Database connected successfully!");
-    const PORT = Number(process.env.PORT) || 8001;
+    const PORT = Number(process.env.PORT) || 8000;
 
     const httpServerInstance = serve({
       fetch: app.fetch,
       port: PORT,
     });
 
-    ioInstance = new Server(httpServerInstance, {
+    const ioInstance = new Server(httpServerInstance, {
       cors: {
         origin: "*",
         methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
       },
     });
 
+    setIoInstance(ioInstance);
+
     const typingTimeouts = new Map();
+    const onlineUsers = new Map<string, number>();
 
     ioInstance.on("connection", (socket) => {
-      let connectedServerId: string;
-      let connectedUserId: string;
-      socket.on("join-server", (serverId, userId) => {
-        socket.join(serverId);
-        connectedServerId = serverId;
-        connectedUserId = userId;
+      let connectedUserId: string | undefined;
+      const joinedRooms = new Set<string>();
 
-        ioInstance.to(serverId).emit("user-connected", userId, Date.now());
+      try {
+        socket.emit("presence:snapshot", {
+          onlineUserIds: Array.from(onlineUsers.keys()),
+          ts: Date.now(),
+        });
+      } catch {}
+
+      const emitRoomCounts = (roomId: string) => {
+        const count = ioInstance.sockets.adapter.rooms.get(roomId)?.size || 0;
+        ioInstance.emit("server:member-count", { serverId: roomId, count });
+        ioInstance.emit("channel:member-count", { channelId: roomId, count });
+      };
+
+      socket.on("identify", (userId: string) => {
+        connectedUserId = userId;
+        const prev = onlineUsers.get(userId) || 0;
+        onlineUsers.set(userId, prev + 1);
+        ioInstance.emit("presence:update", {
+          userId,
+          online: true,
+          ts: Date.now(),
+        });
+      });
+
+      socket.on("join-server", (roomId: string, userId?: string) => {
+        if (userId) {
+          connectedUserId = userId;
+          const prev = onlineUsers.get(userId) || 0;
+          onlineUsers.set(userId, prev + 1);
+          ioInstance.emit("presence:update", {
+            userId,
+            online: true,
+            ts: Date.now(),
+          });
+        }
+        socket.join(roomId);
+        joinedRooms.add(roomId);
+        ioInstance
+          .to(roomId)
+          .emit("user-connected", connectedUserId, Date.now());
+        emitRoomCounts(roomId);
+      });
+
+      socket.on("join-channel", (channelId: string) => {
+        socket.join(channelId);
+        joinedRooms.add(channelId);
+        emitRoomCounts(channelId);
+      });
+
+      socket.on("join-dm", (conversationId: string) => {
+        socket.join(conversationId);
+        joinedRooms.add(conversationId);
       });
       socket.on("typing", (channelId, userId) => {
         const timeoutKey = `${channelId}-${userId}`;
@@ -46,20 +95,32 @@ async function startServer() {
           typingTimeouts.delete(timeoutKey);
         }, 3000);
         typingTimeouts.set(timeoutKey, newTimeout);
+        ioInstance.to(channelId).emit("typing", userId);
       });
 
       socket.on("disconnect", () => {
-        if (connectedServerId && connectedUserId) {
-          ioInstance
-            .to(connectedServerId)
-            .emit("user-disconnected", connectedUserId, Date.now());
-
-          for (const key of typingTimeouts.keys()) {
-            if (key.endsWith(`-${connectedUserId}`)) {
-              clearTimeout(typingTimeouts.get(key));
-              typingTimeouts.delete(key);
-            }
+        if (connectedUserId) {
+          const prev = onlineUsers.get(connectedUserId) || 0;
+          const next = Math.max(0, prev - 1);
+          if (next === 0) {
+            onlineUsers.delete(connectedUserId);
+            ioInstance.emit("presence:update", {
+              userId: connectedUserId,
+              online: false,
+              ts: Date.now(),
+            });
+          } else {
+            onlineUsers.set(connectedUserId, next);
           }
+        }
+        for (const key of typingTimeouts.keys()) {
+          if (connectedUserId && key.endsWith(`-${connectedUserId}`)) {
+            clearTimeout(typingTimeouts.get(key));
+            typingTimeouts.delete(key);
+          }
+        }
+        for (const roomId of joinedRooms) {
+          emitRoomCounts(roomId);
         }
       });
     });
@@ -72,10 +133,3 @@ async function startServer() {
 }
 
 startServer();
-
-export const getIoInstance = () => {
-  if (!ioInstance) {
-    throw new Error("Socket.IO instance not initialized yet!");
-  }
-  return ioInstance;
-};

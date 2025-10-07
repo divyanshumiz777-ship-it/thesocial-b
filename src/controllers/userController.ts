@@ -231,3 +231,88 @@ export const userServers = async (c: Context) => {
     return c.json({ error: "Internal server error" }, 500);
   }
 };
+
+export const getUserConversations = async (c: Context) => {
+  const { id } = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return c.json({ error: "Invalid user ID format" }, 400);
+  }
+
+  try {
+    const Conversation = (await import("../models/Conversation.ts")).default;
+    const Message = (await import("../models/Message.ts")).default;
+
+    const conversations = await Conversation.find({
+      participants: { $in: [id] },
+    })
+      .populate({
+        path: "participants",
+        select: "name email profilePic lastSeen",
+        match: { _id: { $ne: id } },
+      })
+      .populate({
+        path: "messages",
+        options: {
+          sort: { createdAt: -1 },
+          limit: 1,
+        },
+        populate: {
+          path: "sender",
+          select: "name",
+        },
+      })
+      .sort({ updatedAt: -1 });
+
+    interface PopulatedMessage {
+      _id: mongoose.Types.ObjectId;
+      content: string;
+      sender: { _id: mongoose.Types.ObjectId; name: string };
+      createdAt: Date;
+      edited?: boolean;
+    }
+
+    const formattedConversations = conversations.map((conv) => {
+      function isPopulatedMessage(msg: any): msg is PopulatedMessage {
+        return (
+          msg &&
+          typeof msg === "object" &&
+          "content" in msg &&
+          "sender" in msg &&
+          "createdAt" in msg
+        );
+      }
+
+      const lastMsgDoc =
+        Array.isArray(conv.messages) &&
+        conv.messages.length > 0 &&
+        isPopulatedMessage(conv.messages[0])
+          ? conv.messages[0]
+          : null;
+
+      const lastMessage = lastMsgDoc
+        ? {
+            _id: lastMsgDoc._id,
+            content: lastMsgDoc.content,
+            sender: lastMsgDoc.sender,
+            createdAt: lastMsgDoc.createdAt,
+            edited: lastMsgDoc.edited || false,
+          }
+        : null;
+
+      return {
+        _id: conv._id,
+        participants: conv.participants,
+        lastMessage,
+        unreadCount: 0,
+        createdAt: conv.createdAt,
+        updatedAt: conv.updatedAt,
+      };
+    });
+
+    return c.json({ conversations: formattedConversations }, 200);
+  } catch (error) {
+    console.error("Error fetching user conversations:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};

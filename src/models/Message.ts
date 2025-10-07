@@ -28,7 +28,7 @@ const ReactionSchema = new Schema<IReaction>(
 
 const MessageSchema = new Schema<IMessage>(
   {
-    content: { type: String, required: true },
+    content: { type: String },
     sender: { type: Schema.Types.ObjectId, ref: "User", required: true },
     edited: { type: Boolean, default: false },
     channel: { type: Schema.Types.ObjectId, ref: "Channel" },
