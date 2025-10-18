@@ -3,12 +3,31 @@ import { Context } from "hono";
 import User from "../models/User.ts";
 import DiscordServer from "../models/DiscordServer.ts";
 import { Server } from "socket.io";
+import {
+  createNotification,
+  sendNotificationViaSocket,
+} from "./notificationController.ts";
 
 export const getAllUsers = async (c: Context) => {
   try {
+    const auth = c.get("user");
+    const authId = auth?.id;
     const users = await User.find();
     if (users.length === 0) {
       return c.json({ message: "No users found" }, 404);
+    }
+    if (authId && mongoose.Types.ObjectId.isValid(authId)) {
+      const me = await User.findById(authId).select("friends");
+      const friendSet = new Set((me?.friends || []).map(String));
+      const enriched = users.map((u) => ({
+        _id: u._id,
+        name: u.name,
+        email: u.email,
+        profilePic: u.profilePic,
+        lastSeen: u.lastSeen,
+        isFriend: friendSet.has(String(u._id)),
+      }));
+      return c.json({ users: enriched }, 200);
     }
     return c.json({ users }, 200);
   } catch (error) {
@@ -32,6 +51,97 @@ export const getUser = async (c: Context) => {
     return c.json({ user }, 200);
   } catch (error) {
     console.error("Error fetching user:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const listFriends = async (c: Context) => {
+  const { id } = c.get("user");
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return c.json({ error: "Invalid user ID format" }, 400);
+  }
+  try {
+    const me = await User.findById(id).populate({
+      path: "friends",
+      select: "name email profilePic lastSeen",
+    });
+    const friends = Array.isArray(me?.friends) ? (me.friends as any) : [];
+    return c.json({ friends }, 200);
+  } catch (error) {
+    console.error("Error listing friends:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const addFriend = async (c: Context) => {
+  const { id } = c.get("user");
+  const { friendId } = await c.req.json();
+  if (
+    !mongoose.Types.ObjectId.isValid(id) ||
+    !mongoose.Types.ObjectId.isValid(friendId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+  if (id === friendId) {
+    return c.json({ error: "Cannot add yourself as friend" }, 400);
+  }
+  try {
+    const [me, friend] = await Promise.all([
+      User.findByIdAndUpdate(
+        id,
+        { $addToSet: { friends: friendId } },
+        { new: true }
+      ).select("friends name"),
+      User.findByIdAndUpdate(
+        friendId,
+        { $addToSet: { friends: id } },
+        { new: true }
+      ).select("friends name"),
+    ]);
+    if (!me || !friend) return c.json({ error: "User not found" }, 404);
+
+    const notification = await createNotification({
+      recipient: friendId,
+      sender: id,
+      type: "friend_accepted",
+      title: "New Friend",
+      message: `${me.name} added you as a friend`,
+      metadata: {
+        friendId: id,
+        friendName: me.name,
+      },
+      actionUrl: `/community/@me/friends`,
+    });
+
+    const io = c.get("io" as any) as Server | undefined;
+    if (io && notification) {
+      sendNotificationViaSocket(io, friendId, notification);
+    }
+
+    return c.json({ message: "Friend added" }, 200);
+  } catch (error) {
+    console.error("Error adding friend:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const removeFriend = async (c: Context) => {
+  const { id } = c.get("user");
+  const { friendId } = await c.req.json();
+  if (
+    !mongoose.Types.ObjectId.isValid(id) ||
+    !mongoose.Types.ObjectId.isValid(friendId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+  try {
+    await Promise.all([
+      User.findByIdAndUpdate(id, { $pull: { friends: friendId } }),
+      User.findByIdAndUpdate(friendId, { $pull: { friends: id } }),
+    ]);
+    return c.json({ message: "Friend removed" }, 200);
+  } catch (error) {
+    console.error("Error removing friend:", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };
@@ -241,7 +351,6 @@ export const getUserConversations = async (c: Context) => {
 
   try {
     const Conversation = (await import("../models/Conversation.ts")).default;
-    const Message = (await import("../models/Message.ts")).default;
 
     const conversations = await Conversation.find({
       participants: { $in: [id] },

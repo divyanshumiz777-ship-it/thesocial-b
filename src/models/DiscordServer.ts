@@ -1,5 +1,10 @@
 import mongoose, { Schema } from "mongoose";
-import { IDiscordServer, IMuted, IBanned } from "./discordServer.types";
+import {
+  IDiscordServer,
+  IMuted,
+  IBanned,
+  IJoinRequest,
+} from "./discordServer.types";
 
 const muted = new Schema<IMuted>(
   {
@@ -30,6 +35,19 @@ const memberSchema = new Schema(
   { _id: false }
 );
 
+const joinRequestSchema = new Schema<IJoinRequest>(
+  {
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    requestedAt: { type: Date, default: Date.now },
+    status: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+  },
+  { _id: false }
+);
+
 const DiscordServerSchema = new Schema<IDiscordServer>(
   {
     owner: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -44,6 +62,7 @@ const DiscordServerSchema = new Schema<IDiscordServer>(
     },
     imageUrl: { type: String },
     members: [memberSchema],
+    joinRequests: [joinRequestSchema],
     onlineCount: { type: Number, default: 0 },
   },
   { timestamps: true }

@@ -9,6 +9,7 @@ interface IUser extends Document {
   password?: string;
   profilePic?: string;
   dms?: Types.ObjectId[];
+  friends?: Types.ObjectId[];
   provider: string;
   providerAccountId?: string;
   resetPasswordToken?: string;
@@ -44,6 +45,7 @@ const UserSchema = new Schema<IUser>({
     default: "",
   },
   dms: [{ type: Schema.Types.ObjectId, ref: "DirectMessage" }],
+  friends: [{ type: Schema.Types.ObjectId, ref: "User" }],
   lastSeen: { type: Date, default: Date.now },
   provider: { type: String, default: "credentials" },
   providerAccountId: { type: String },

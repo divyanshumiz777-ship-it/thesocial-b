@@ -47,6 +47,8 @@ async function startServer() {
 
       socket.on("identify", (userId: string) => {
         connectedUserId = userId;
+        socket.join(userId);
+        joinedRooms.add(userId);
         const prev = onlineUsers.get(userId) || 0;
         onlineUsers.set(userId, prev + 1);
         ioInstance.emit("presence:update", {
@@ -59,6 +61,8 @@ async function startServer() {
       socket.on("join-server", (roomId: string, userId?: string) => {
         if (userId) {
           connectedUserId = userId;
+          socket.join(userId);
+          joinedRooms.add(userId);
           const prev = onlineUsers.get(userId) || 0;
           onlineUsers.set(userId, prev + 1);
           ioInstance.emit("presence:update", {
@@ -80,6 +84,8 @@ async function startServer() {
         joinedRooms.add(channelId);
         emitRoomCounts(channelId);
       });
+
+      socket.on("request-server-channel-counts", (serverId: string) => {});
 
       socket.on("join-dm", (conversationId: string) => {
         socket.join(conversationId);

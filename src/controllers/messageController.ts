@@ -3,6 +3,7 @@ import { Server } from "socket.io";
 import Message from "../models/Message.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
+import ChannelReadStatus from "../models/ChannelReadStatus.ts";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { Buffer } from "node:buffer";
 
@@ -18,18 +19,25 @@ export const createMessage = async (c: Context) => {
     const content = formData.get("content") as string;
     const senderId = user.id;
     const serverId = formData.get("serverId") as string;
-    const attachmentFile = formData.get("attachment") as File | null;
     const mentionsString = formData.get("mentions") as string | null;
     const mentions = mentionsString ? JSON.parse(mentionsString) : [];
-    console.log(
-      content,
-      senderId,
-      channelId,
-      serverId,
-      mentions,
-      attachmentFile,
-      mentionsString
-    );
+    const replyToId = formData.get("replyTo") as string | null;
+
+    const attachmentFiles: File[] = [];
+    const gifUrl = formData.get("gifUrl") as string | null;
+    const stickerUrl = formData.get("stickerUrl") as string | null;
+
+    let index = 0;
+    while (formData.get(`attachment${index}`)) {
+      const file = formData.get(`attachment${index}`) as File;
+      if (file) attachmentFiles.push(file);
+      index++;
+    }
+
+    const singleAttachment = formData.get("attachment") as File | null;
+    if (singleAttachment) {
+      attachmentFiles.push(singleAttachment);
+    }
 
     if (
       !mongoose.Types.ObjectId.isValid(channelId) ||
@@ -38,37 +46,64 @@ export const createMessage = async (c: Context) => {
     ) {
       return c.json({ error: "Invalid ID format" }, 400);
     }
-    // const canUserSendMessages = await DiscordServer.findOne({
-    //   _id: serverId,
-    //   members: {
-    //     $elemMatch: {
-    //       user: senderId,
-    //       "muted.isMuted": { $ne: true },
-    //       "banned.isBanned": { $ne: true },
-    //       roles: "send messages",
-    //     },
-    //   },
-    // });
-    // if (!canUserSendMessages) {
-    //   return c.json(
-    //     {
-    //       error: "You do not have permission to send messages in this server.",
-    //     },
-    //     403
-    //   );
-    // }
+
+    const getFileType = (
+      file: File
+    ): "image" | "video" | "document" | "audio" => {
+      const mimeType = file.type;
+      if (mimeType.startsWith("image/")) return "image";
+      if (mimeType.startsWith("video/")) return "video";
+      if (mimeType.startsWith("audio/")) return "audio";
+      return "document";
+    };
+
     const attachments = [];
-    if (attachmentFile) {
+    const attachmentsV2 = [];
+
+    if (gifUrl) {
+      attachments.push(gifUrl);
+      attachmentsV2.push({
+        url: gifUrl,
+        type: "gif",
+        mimeType: "image/gif",
+      });
+    }
+
+    if (stickerUrl) {
+      attachments.push(stickerUrl);
+      attachmentsV2.push({
+        url: stickerUrl,
+        type: "sticker",
+        mimeType: "image/png",
+      });
+    }
+
+    for (const attachmentFile of attachmentFiles) {
       const arrayBuffer = await attachmentFile.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
+      const fileType = getFileType(attachmentFile);
+      const resourceType =
+        fileType === "video"
+          ? "video"
+          : fileType === "audio"
+          ? "video"
+          : "auto";
+
       const cloudinaryResponse = await uploadOnCloudinary(buffer, {
-        folder: "attachments",
-        resource_type: "auto",
+        folder: `attachments/${fileType}s`,
+        resource_type: resourceType,
       });
 
       if (cloudinaryResponse) {
         attachments.push(cloudinaryResponse.secure_url);
+        attachmentsV2.push({
+          url: cloudinaryResponse.secure_url,
+          type: fileType,
+          fileName: attachmentFile.name,
+          fileSize: attachmentFile.size,
+          mimeType: attachmentFile.type,
+        });
       }
     }
 
@@ -79,10 +114,16 @@ export const createMessage = async (c: Context) => {
       content,
       mentions,
       attachments,
+      attachmentsV2,
+      replyTo: replyToId || undefined,
     });
-    const populatedMessage = await Message.findById(newMessage._id).populate(
-      "sender"
-    );
+
+    const populatedMessage = await Message.findById(newMessage._id)
+      .populate("sender")
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender" },
+      });
 
     if (!populatedMessage) {
       return c.json({ error: "Failed to retrieve the created message" }, 500);
@@ -129,7 +170,11 @@ export const getMessagesByChannelId = async (c: Context) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("sender");
+      .populate("sender")
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender" },
+      });
 
     return c.json(messages || [], 200);
   } catch (error) {
@@ -185,10 +230,29 @@ export const updateMessage = async (c: Context) => {
   try {
     const io: Server = c.get("io");
     const { messageId } = c.req.param();
-    const formData = await c.req.formData();
-    const content = formData.get("content") as string;
-    const senderId = formData.get("senderId") as string;
-    const attachmentFile = formData.get("attachment") as File | null;
+    const user = c.get("user");
+
+    if (!user || !user.id) {
+      console.error("Authentication failed: User not found or missing ID");
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    const contentType = c.req.header("content-type") || "";
+
+    let content: string;
+    let senderId: string;
+    let attachmentFile: File | null = null;
+
+    if (contentType.includes("application/json")) {
+      const body = await c.req.json();
+      content = body.content;
+      senderId = user.id;
+    } else {
+      const formData = await c.req.formData();
+      content = formData.get("content") as string;
+      senderId = user.id;
+      attachmentFile = formData.get("attachment") as File | null;
+    }
 
     if (
       !mongoose.Types.ObjectId.isValid(messageId) ||
@@ -235,7 +299,12 @@ export const updateMessage = async (c: Context) => {
       messageId,
       updateOperation,
       { new: true }
-    ).populate("sender");
+    )
+      .populate("sender")
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender" },
+      });
 
     if (!updatedMessage) {
       return c.json({ error: "Message not found" }, 404);
@@ -294,5 +363,69 @@ export const toggleReaction = async (c: Context) => {
   } catch (error) {
     console.error("Error adding reaction:", error);
     return c.json({ error: "Failed to add reaction" }, 500);
+  }
+};
+
+export const updateLastReadMessage = async (c: Context) => {
+  try {
+    const { channelId } = c.req.param();
+    const user = c.get("user");
+    const { messageId } = await c.req.json();
+
+    if (
+      !mongoose.Types.ObjectId.isValid(channelId) ||
+      !mongoose.Types.ObjectId.isValid(user.id) ||
+      !mongoose.Types.ObjectId.isValid(messageId)
+    ) {
+      return c.json({ error: "Invalid ID format" }, 400);
+    }
+
+    await ChannelReadStatus.findOneAndUpdate(
+      { user: user.id, channel: channelId },
+      {
+        lastReadMessage: messageId,
+        lastReadAt: new Date(),
+      },
+      { upsert: true, new: true }
+    );
+
+    return c.json({ message: "Last read message updated successfully" }, 200);
+  } catch (error) {
+    console.error("Error updating last read message:", error);
+    return c.json({ error: "Failed to update last read message" }, 500);
+  }
+};
+
+export const getLastReadMessage = async (c: Context) => {
+  try {
+    const { channelId } = c.req.param();
+    const user = c.get("user");
+
+    if (
+      !mongoose.Types.ObjectId.isValid(channelId) ||
+      !mongoose.Types.ObjectId.isValid(user.id)
+    ) {
+      return c.json({ error: "Invalid ID format" }, 400);
+    }
+
+    const readStatus = await ChannelReadStatus.findOne({
+      user: user.id,
+      channel: channelId,
+    });
+
+    if (!readStatus) {
+      return c.json({ lastReadMessage: null }, 200);
+    }
+
+    return c.json(
+      {
+        lastReadMessage: readStatus.lastReadMessage,
+        lastReadAt: readStatus.lastReadAt,
+      },
+      200
+    );
+  } catch (error) {
+    console.error("Error fetching last read message:", error);
+    return c.json({ error: "Failed to fetch last read message" }, 500);
   }
 };

@@ -30,6 +30,12 @@ export interface IMemberPopulated extends Omit<IMember, "user"> {
   user: IUserMinimal;
 }
 
+export interface IJoinRequest {
+  user: Types.ObjectId;
+  requestedAt: Date;
+  status: "pending" | "approved" | "rejected";
+}
+
 export interface IDiscordServer {
   _id: Types.ObjectId;
   owner: Types.ObjectId;
@@ -39,6 +45,7 @@ export interface IDiscordServer {
   name: string;
   description: string;
   members: IMember[];
+  joinRequests?: IJoinRequest[];
   onlineCount: number;
   imageUrl: string;
 }

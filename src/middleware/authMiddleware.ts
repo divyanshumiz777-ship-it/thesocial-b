@@ -28,7 +28,6 @@ export const authMiddleware = async (c: Context, next: Next) => {
     });
   } catch (error: any) {
     const errorCode = error?.code;
-    console.log(errorCode);
 
     let message = "Unauthorized.";
 

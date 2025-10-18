@@ -9,6 +9,7 @@ import { channelRouter } from "./routes/channelRoutes.ts";
 import { messageRouter } from "./routes/messageRoutes.ts";
 import { dmRouter } from "./routes/dmRoutes.ts";
 import { threadRouter } from "./routes/threadRoutes.ts";
+import { notificationRouter } from "./routes/notificationRoutes.ts";
 
 import { getIoInstance } from "./config/socket.ts";
 const app = new Hono();
@@ -42,5 +43,6 @@ app.route("/api/v1/channel", channelRouter);
 app.route("/api/v1/message", messageRouter);
 app.route("/api/v1/dm", dmRouter);
 app.route("/api/v1/thread", threadRouter);
+app.route("/api/v1/notification", notificationRouter);
 
 export default app;

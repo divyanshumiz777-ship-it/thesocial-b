@@ -8,6 +8,9 @@ import {
   leaveServer,
   userServers,
   getUserConversations,
+  listFriends,
+  addFriend,
+  removeFriend,
 } from "../controllers/userController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 
@@ -15,6 +18,9 @@ export const userRouter = new Hono();
 
 userRouter.get("/user-servers", authMiddleware, userServers);
 userRouter.get("/conversations", authMiddleware, getUserConversations);
+userRouter.get("/friends", authMiddleware, listFriends);
+userRouter.post("/friends/add", authMiddleware, addFriend);
+userRouter.post("/friends/remove", authMiddleware, removeFriend);
 userRouter.get("/all-user-detail", getAllUsers);
 userRouter.get("/user-detail/:id", getUser);
 userRouter.put("/user-detail/:id", editUser);

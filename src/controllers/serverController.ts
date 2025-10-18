@@ -10,6 +10,10 @@ import { nanoid } from "nanoid";
 import Invite from "../models/Invite.ts";
 import { checkPermission } from "../lib/permissionHelper.ts";
 import { Buffer } from "node:buffer";
+import {
+  createNotification,
+  sendNotificationViaSocket,
+} from "./notificationController.ts";
 
 interface UserPayload {
   id: string;
@@ -25,7 +29,6 @@ export const createServer = async (
   const imageFile = body.get("imageFile") as File;
   const description = body.get("description") as string;
   const serverType = body.get("serverType") as string;
-  console.log(serverType);
 
   if (!serverName) {
     return c.json({ error: "Server name is required" }, 400);
@@ -205,14 +208,6 @@ export const getServerById = async (c: Context) => {
       return c.json({ message: "Server not found" }, 404);
     }
 
-    // const isMember = server.members.some(
-    //   (member: any) => member.user._id.toString() === user.id
-    // );
-
-    // if (!isMember && server.owner._id.toString() !== user.id) {
-    //   return c.json({ error: "Access denied" }, 403);
-    // }
-
     return c.json({ server }, 200);
   } catch (error) {
     console.error("Error fetching server details:", error);
@@ -321,18 +316,109 @@ export const createInvite = async (
 
   try {
     const code = nanoid(10);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
     const newInvite = await Invite.create({
       code,
       server: serverId,
       createdBy: user.id,
+      expiresAt,
     });
+
+    const populatedInvite = await Invite.findById(newInvite._id)
+      .populate("createdBy", "name profilePic")
+      .lean();
+
     const inviteLink = `${
       process.env.FRONTEND_URL || "http://localhost:3000"
     }/invite/${code}`;
 
-    return c.json({ inviteLink, invite: newInvite }, 201);
+    return c.json({ inviteLink, invite: populatedInvite }, 201);
   } catch (error) {
     console.error("Error creating invite:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const getServerInvites = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(serverId)) {
+    return c.json({ error: "Invalid server ID format" }, 400);
+  }
+
+  try {
+    const server = await DiscordServer.findById(serverId).lean();
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    const isMember = server.members.some(
+      (member: any) => member.user.toString() === user.id
+    );
+    const isOwner = server.owner.toString() === user.id;
+
+    if (!isMember && !isOwner) {
+      return c.json({ error: "Permission denied" }, 403);
+    }
+
+    const invites = await Invite.find({
+      server: serverId,
+      expiresAt: { $gt: new Date() },
+    })
+      .populate("createdBy", "name profilePic")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return c.json({ invites }, 200);
+  } catch (error) {
+    console.error("Error fetching invites:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const deleteInvite = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { inviteId } = c.req.param();
+  const user = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(inviteId)) {
+    return c.json({ error: "Invalid invite ID format" }, 400);
+  }
+
+  try {
+    const invite = await Invite.findById(inviteId).lean();
+    if (!invite) {
+      return c.json({ error: "Invite not found" }, 404);
+    }
+
+    const server = await DiscordServer.findById(invite.server).lean();
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    const isCreator = invite.createdBy.toString() === user.id;
+    const isOwner = server.owner.toString() === user.id;
+    const isAdmin = server.members.some(
+      (member: any) =>
+        member.user.toString() === user.id &&
+        (member.roles.includes("admin") || member.roles.includes("owner"))
+    );
+
+    if (!isCreator && !isOwner && !isAdmin) {
+      return c.json({ error: "Permission denied" }, 403);
+    }
+
+    await Invite.findByIdAndDelete(inviteId);
+
+    return c.json({ message: "Invite deleted successfully" }, 200);
+  } catch (error) {
+    console.error("Error deleting invite:", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };
@@ -364,7 +450,7 @@ export const acceptInvite = async (
 
     const updatedServer = await DiscordServer.findByIdAndUpdate(
       serverId,
-      { $addToSet: { members: { user: user.id, roles: ["member"] } } }, // Assign a default role
+      { $addToSet: { members: { user: user.id, roles: ["member"] } } },
       { new: true }
     );
     await User.findByIdAndUpdate(user.id, { $addToSet: { servers: serverId } });
@@ -782,6 +868,394 @@ export const unmuteMember = async (c: Context) => {
     return c.json({ message: "Member unmuted successfully" }, 200);
   } catch (error) {
     console.error("Error unmuting member:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const requestJoinServer = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(serverId)) {
+    return c.json({ error: "Invalid server ID format" }, 400);
+  }
+
+  try {
+    const server = await DiscordServer.findById(serverId);
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    if (server.visibility === "public") {
+      return c.json(
+        {
+          error:
+            "This is a public server. You can join directly without a request.",
+        },
+        400
+      );
+    }
+
+    const isMember = server.members.some(
+      (member: any) => member.user.toString() === user.id
+    );
+    if (isMember) {
+      return c.json({ error: "You are already a member of this server" }, 400);
+    }
+
+    if (!server.joinRequests) {
+      server.joinRequests = [];
+    }
+
+    const existingRequest = server.joinRequests.find(
+      (req: any) => req.user.toString() === user.id && req.status === "pending"
+    );
+    if (existingRequest) {
+      return c.json(
+        {
+          message: "Join request already sent",
+          alreadyRequested: true,
+        },
+        200
+      );
+    }
+
+    await DiscordServer.findByIdAndUpdate(serverId, {
+      $push: {
+        joinRequests: {
+          user: user.id,
+          requestedAt: new Date(),
+          status: "pending",
+        },
+      },
+    });
+
+    const requestUser = await User.findById(user.id).select("name profilePic");
+
+    const notification = await createNotification({
+      recipient: server.owner.toString(),
+      sender: user.id,
+      type: "join_request",
+      title: "New Join Request",
+      message: `${requestUser?.name || "A user"} wants to join ${server.name}`,
+      metadata: {
+        serverId: server._id,
+        serverName: server.name,
+        requestUserId: user.id,
+      },
+      actionUrl: `/community/${server._id}?openSettings=join-requests`,
+    });
+
+    const io = c.get("io" as any) as Server | undefined;
+    if (io && notification) {
+      sendNotificationViaSocket(io, server.owner.toString(), notification);
+      io.to(server.owner.toString()).emit("joinRequest", {
+        serverId,
+        userId: user.id,
+        userName: requestUser?.name,
+      });
+    }
+
+    return c.json({ message: "Join request sent successfully" }, 200);
+  } catch (error) {
+    console.error("Error requesting to join server:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const getJoinRequests = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(serverId)) {
+    return c.json({ error: "Invalid server ID format" }, 400);
+  }
+
+  try {
+    const server = await DiscordServer.findById(serverId)
+      .populate({
+        path: "joinRequests.user",
+        select: "name email profilePic",
+      })
+      .lean();
+
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    const isOwner = server.owner.toString() === user.id;
+    const isAdmin = server.members.some(
+      (member: any) =>
+        member.user.toString() === user.id &&
+        (member.roles.includes("admin") || member.roles.includes("owner"))
+    );
+
+    if (!isOwner && !isAdmin) {
+      return c.json({ error: "Permission denied" }, 403);
+    }
+
+    const pendingRequests =
+      server.joinRequests?.filter((req: any) => req.status === "pending") || [];
+
+    return c.json({ joinRequests: pendingRequests }, 200);
+  } catch (error) {
+    console.error("Error fetching join requests:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const approveJoinRequest = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const { requestUserId } = await c.req.json();
+  const user = c.get("user");
+
+  if (
+    !mongoose.Types.ObjectId.isValid(serverId) ||
+    !mongoose.Types.ObjectId.isValid(requestUserId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+
+  try {
+    const server = await DiscordServer.findById(serverId);
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    const isOwner = server.owner.toString() === user.id;
+    const isAdmin = server.members.some(
+      (member: any) =>
+        member.user.toString() === user.id &&
+        (member.roles.includes("admin") || member.roles.includes("owner"))
+    );
+
+    if (!isOwner && !isAdmin) {
+      return c.json({ error: "Permission denied" }, 403);
+    }
+
+    const requestUser = await User.findById(requestUserId).select(
+      "name email profilePic"
+    );
+
+    await DiscordServer.findOneAndUpdate(
+      { _id: serverId, "joinRequests.user": requestUserId },
+      {
+        $pull: { joinRequests: { user: requestUserId } },
+        $push: { members: { user: requestUserId, roles: ["member"] } },
+      }
+    );
+
+    await User.findByIdAndUpdate(requestUserId, {
+      $addToSet: { servers: serverId },
+    });
+
+    const userNotification = await createNotification({
+      recipient: requestUserId,
+      sender: user.id,
+      type: "join_approved",
+      title: "Join Request Approved",
+      message: `Your request to join ${server.name} has been approved!`,
+      metadata: {
+        serverId: server._id,
+        serverName: server.name,
+        approvedBy: user.id,
+      },
+      actionUrl: `/community/${server._id}`,
+    });
+
+    if (
+      server.owner.toString() !== user.id &&
+      server.owner.toString() !== requestUserId
+    ) {
+      await createNotification({
+        recipient: server.owner.toString(),
+        sender: requestUserId,
+        type: "member_joined",
+        title: "New Member Joined",
+        message: `${requestUser?.name || "A user"} joined ${server.name}`,
+        metadata: {
+          serverId: server._id,
+          serverName: server.name,
+          newMemberId: requestUserId,
+        },
+        actionUrl: `/community/${server._id}`,
+      });
+    }
+
+    const io = c.get("io" as any) as Server | undefined;
+    if (io) {
+      if (userNotification) {
+        sendNotificationViaSocket(io, requestUserId, userNotification);
+      }
+
+      io.to(requestUserId).emit("joinRequestApproved", {
+        serverId,
+        serverName: server.name,
+      });
+
+      io.to(serverId.toString()).emit("serverUpdated", {
+        serverId,
+        updateType: "newMember",
+        userId: requestUserId,
+        username: requestUser?.name || "New member",
+      });
+
+      io.to(serverId.toString()).emit("memberJoined", {
+        userId: requestUserId,
+        username: requestUser?.name || "New member",
+      });
+    }
+
+    return c.json(
+      {
+        message: "Join request approved successfully",
+        newMember: {
+          userId: requestUserId,
+          username: requestUser?.name,
+        },
+      },
+      200
+    );
+  } catch (error) {
+    console.error("Error approving join request:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const rejectJoinRequest = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const { requestUserId } = await c.req.json();
+  const user = c.get("user");
+
+  if (
+    !mongoose.Types.ObjectId.isValid(serverId) ||
+    !mongoose.Types.ObjectId.isValid(requestUserId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+
+  try {
+    const server = await DiscordServer.findById(serverId);
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    const isOwner = server.owner.toString() === user.id;
+    const isAdmin = server.members.some(
+      (member: any) =>
+        member.user.toString() === user.id &&
+        (member.roles.includes("admin") || member.roles.includes("owner"))
+    );
+
+    if (!isOwner && !isAdmin) {
+      return c.json({ error: "Permission denied" }, 403);
+    }
+
+    await DiscordServer.findOneAndUpdate(
+      { _id: serverId, "joinRequests.user": requestUserId },
+      {
+        $set: { "joinRequests.$.status": "rejected" },
+      }
+    );
+
+    const notification = await createNotification({
+      recipient: requestUserId,
+      sender: user.id,
+      type: "join_rejected",
+      title: "Join Request Declined",
+      message: `Your request to join ${server.name} was declined.`,
+      metadata: {
+        serverId: server._id,
+        serverName: server.name,
+        rejectedBy: user.id,
+      },
+    });
+
+    const io = c.get("io" as any) as Server | undefined;
+    if (io) {
+      if (notification) {
+        sendNotificationViaSocket(io, requestUserId, notification);
+      }
+      io.to(requestUserId).emit("joinRequestRejected", {
+        serverId,
+        serverName: server.name,
+      });
+    }
+
+    return c.json({ message: "Join request rejected successfully" }, 200);
+  } catch (error) {
+    console.error("Error rejecting join request:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const cancelJoinRequest = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(serverId)) {
+    return c.json({ error: "Invalid server ID format" }, 400);
+  }
+
+  try {
+    const server = await DiscordServer.findById(serverId);
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    const joinRequestIndex = server.joinRequests?.findIndex(
+      (req: any) => req.user.toString() === user.id && req.status === "pending"
+    );
+
+    if (joinRequestIndex === -1 || joinRequestIndex === undefined) {
+      return c.json({ error: "No pending join request found" }, 404);
+    }
+
+    const updatedJoinRequests = server?.joinRequests?.filter(
+      (req: any) =>
+        !(req.user.toString() === user.id && req.status === "pending")
+    );
+
+    server.joinRequests = updatedJoinRequests;
+    await server.save();
+
+    const notification = await createNotification({
+      recipient: server.owner.toString(),
+      sender: user.id,
+      type: "join_request",
+      title: "Join Request Cancelled",
+      message: `A user cancelled their join request for ${server.name}`,
+      metadata: {
+        serverId: server._id,
+        serverName: server.name,
+        cancelledBy: user.id,
+      },
+    });
+
+    const io = c.get("io" as any) as Server | undefined;
+    if (io) {
+      if (notification) {
+        sendNotificationViaSocket(io, server.owner.toString(), notification);
+      }
+      io.to(server.owner.toString()).emit("joinRequestCancelled", {
+        serverId,
+        userId: user.id,
+      });
+    }
+
+    return c.json({ message: "Join request cancelled successfully" }, 200);
+  } catch (error) {
+    console.error("Error cancelling join request:", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };
