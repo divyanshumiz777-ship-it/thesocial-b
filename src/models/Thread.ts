@@ -25,5 +25,8 @@ const ThreadSchema = new Schema<IThread>(
   { timestamps: true }
 );
 
+ThreadSchema.index({ server: 1, channel: 1, title: 1 });
+ThreadSchema.index({ title: "text" });
+
 const Thread = mongoose.model<IThread>("Thread", ThreadSchema);
 export default Thread;

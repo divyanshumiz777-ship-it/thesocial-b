@@ -68,9 +68,11 @@ const DiscordServerSchema = new Schema<IDiscordServer>(
   { timestamps: true }
 );
 
+DiscordServerSchema.index({ name: "text" });
+DiscordServerSchema.index({ owner: 1 });
+
 const DiscordServer = mongoose.model<IDiscordServer>(
   "DiscordServer",
   DiscordServerSchema
 );
-
 export default DiscordServer;

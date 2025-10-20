@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import {
+  searchMessages,
   getMessagesByChannelId,
   createMessage,
   deleteMessage,
@@ -11,6 +12,7 @@ import {
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 export const messageRouter = new Hono();
 
+messageRouter.get("/search/:channelId", searchMessages);
 messageRouter.get("/get-messages/:channelId", getMessagesByChannelId);
 messageRouter.post("/create-message/:channelId", authMiddleware, createMessage);
 messageRouter.delete("/delete-message/:messageId", deleteMessage);

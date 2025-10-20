@@ -11,6 +11,8 @@ import {
   listFriends,
   addFriend,
   removeFriend,
+  getUserSettings,
+  updateUserSettings,
 } from "../controllers/userController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 
@@ -27,3 +29,5 @@ userRouter.put("/user-detail/:id", editUser);
 userRouter.delete("/user-detail/:id", deleteUser);
 userRouter.post("/join-server/:id", authMiddleware, joinServer);
 userRouter.post("/leave-server/:id", authMiddleware, leaveServer);
+userRouter.get("/settings", authMiddleware, getUserSettings);
+userRouter.put("/settings", authMiddleware, updateUserSettings);

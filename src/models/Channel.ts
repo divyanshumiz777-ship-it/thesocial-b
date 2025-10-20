@@ -1,4 +1,5 @@
 import mongoose, { Schema, Types } from "mongoose";
+
 export interface IChannel {
   _id: Types.ObjectId;
   name: string;
@@ -8,6 +9,7 @@ export interface IChannel {
   senders: Types.ObjectId[];
   type: "Text" | "Voice";
   thread: Types.ObjectId[];
+  participants: Types.ObjectId[];
 }
 
 const ChannelSchema = new Schema<IChannel>(
@@ -23,9 +25,12 @@ const ChannelSchema = new Schema<IChannel>(
     messages: [{ type: Schema.Types.ObjectId, ref: "Message" }],
     senders: [{ type: Schema.Types.ObjectId, ref: "User" }],
     thread: [{ type: Schema.Types.ObjectId, ref: "Thread" }],
+    participants: [{ type: Schema.Types.ObjectId, ref: "User" }],
   },
   { timestamps: true }
 );
+ChannelSchema.index({ server: 1, category: 1, name: 1 });
+ChannelSchema.index({ name: "text" });
 
 const Channel = mongoose.model<IChannel>("Channel", ChannelSchema);
 export default Channel;

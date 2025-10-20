@@ -29,6 +29,49 @@ async function startServer() {
     const onlineUsers = new Map<string, number>();
 
     ioInstance.on("connection", (socket) => {
+      const socketRateLimit: Record<string, { last: number; count: number }> =
+        {};
+      const SOCKET_WINDOW_MS = 10 * 1000;
+      const SOCKET_MAX_EVENTS = 10;
+
+      function checkSocketRate(userId: string, event: string) {
+        const key = `${userId}:${event}`;
+        const now = Date.now();
+        const entry = socketRateLimit[key] || { last: now, count: 0 };
+        if (now - entry.last > SOCKET_WINDOW_MS) {
+          entry.count = 0;
+          entry.last = now;
+        }
+        entry.count++;
+        socketRateLimit[key] = entry;
+        return entry.count <= SOCKET_MAX_EVENTS;
+      }
+      socket.on("webrtc:join", ({ channelId, userId }) => {
+        socket.join(channelId);
+        ioInstance.to(channelId).emit("webrtc:user-joined", { userId });
+      });
+
+      socket.on("webrtc:leave", ({ channelId, userId }) => {
+        socket.leave(channelId);
+        ioInstance.to(channelId).emit("webrtc:user-left", { userId });
+      });
+
+      socket.on("webrtc:offer", ({ channelId, offer, from, to }) => {
+        ioInstance.to(channelId).emit("webrtc:offer", { offer, from, to });
+      });
+
+      socket.on("webrtc:answer", ({ channelId, answer, from, to }) => {
+        ioInstance.to(channelId).emit("webrtc:answer", { answer, from, to });
+      });
+
+      socket.on(
+        "webrtc:ice-candidate",
+        ({ channelId, candidate, from, to }) => {
+          ioInstance
+            .to(channelId)
+            .emit("webrtc:ice-candidate", { candidate, from, to });
+        }
+      );
       let connectedUserId: string | undefined;
       const joinedRooms = new Set<string>();
 
@@ -92,6 +135,7 @@ async function startServer() {
         joinedRooms.add(conversationId);
       });
       socket.on("typing", (channelId, userId) => {
+        if (!checkSocketRate(userId, "typing")) return;
         const timeoutKey = `${channelId}-${userId}`;
         if (typingTimeouts.has(timeoutKey)) {
           clearTimeout(typingTimeouts.get(timeoutKey));

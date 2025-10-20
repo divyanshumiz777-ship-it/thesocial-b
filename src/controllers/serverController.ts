@@ -3,6 +3,10 @@ import DiscordServer from "../models/DiscordServer.ts";
 import Category from "../models/Category.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
+import Message from "../models/Message.ts";
+import Thread from "../models/Thread.ts";
+import ChannelReadStatus from "../models/ChannelReadStatus.ts";
+import Notification from "../models/Notification.ts";
 import User from "../models/User.ts";
 import { Server } from "socket.io";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
@@ -14,7 +18,73 @@ import {
   createNotification,
   sendNotificationViaSocket,
 } from "./notificationController.ts";
+import AuditLog from "../models/AuditLog.ts";
 
+export const searchServers = async (c: Context) => {
+  const query = c.req.query("q") || "";
+  const limit = Number.parseInt(c.req.query("limit") || "20", 10);
+  const skip = Number.parseInt(c.req.query("skip") || "0", 10);
+  if (!query) {
+    return c.json({ error: "Query required" }, 400);
+  }
+  try {
+    const filter = { name: { $regex: query, $options: "i" } };
+    const total = await DiscordServer.countDocuments(filter);
+    const servers = await DiscordServer.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    return c.json({ servers, total, limit, skip }, 200);
+  } catch (error) {
+    console.error("Error in searchServers:", error);
+    return c.json({ error: "Search failed" }, 500);
+  }
+};
+export const getAuditLogs = async (c: Context) => {
+  const { serverId } = c.req.param();
+  if (!mongoose.Types.ObjectId.isValid(serverId)) {
+    return c.json({ error: "Invalid server ID format" }, 400);
+  }
+  const logs = await AuditLog.find({ server: serverId })
+    .sort({ createdAt: -1 })
+    .lean();
+  return c.json({ logs }, 200);
+};
+export const kickUser = async (c: Context) => {
+  const { serverId, userId } = c.req.param();
+  const modUser = c.get("user");
+  if (
+    !mongoose.Types.ObjectId.isValid(serverId) ||
+    !mongoose.Types.ObjectId.isValid(userId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+  const server = await DiscordServer.findById(serverId);
+  if (!server) return c.json({ error: "Server not found" }, 404);
+  const isMod =
+    server.owner.toString() === modUser.id ||
+    server.members.some(
+      (m: any) => m.user.toString() === modUser.id && m.roles.includes("mod")
+    );
+  if (!isMod) return c.json({ error: "Permission denied" }, 403);
+  server.members = server.members.filter(
+    (m: any) => m.user.toString() !== userId
+  );
+  await server.save();
+  await AuditLog.create({
+    server: server._id,
+    action: "kick",
+    performedBy: modUser.id,
+    targetUser: userId,
+    details: `User ${userId} kicked by ${modUser.id}`,
+  });
+  const io = c.get("io") as Server | undefined;
+  if (io) {
+    io.to(serverId).emit("moderation:kick", { userId, by: modUser.id });
+  }
+  return c.json({ message: "User kicked", userId }, 200);
+};
 interface UserPayload {
   id: string;
   email: string;
@@ -156,29 +226,6 @@ export const createServer = async (
   }
 };
 
-export const searchServers = async (c: Context) => {
-  const searchTerm = c.req.query("q");
-
-  if (!searchTerm || searchTerm.trim() === "") {
-    return c.json({ servers: [] }, 200);
-  }
-
-  try {
-    const searchWords = searchTerm.trim().split(/\s+/);
-    const regexConditions = searchWords.map((word) => ({
-      name: new RegExp(word, "i"),
-    }));
-    const servers = await DiscordServer.find({ $and: regexConditions })
-      .limit(20)
-      .populate({ path: "owner", select: "name profilePic" });
-
-    return c.json({ servers }, 200);
-  } catch (error) {
-    console.error("Error searching servers:", error);
-    return c.json({ error: "Internal server error" }, 500);
-  }
-};
-
 export const getServerById = async (c: Context) => {
   const { id: serverId } = c.req.param();
 
@@ -202,7 +249,8 @@ export const getServerById = async (c: Context) => {
           path: "channels",
           model: "Channel",
         },
-      });
+      })
+      .lean();
 
     if (!server) {
       return c.json({ message: "Server not found" }, 404);
@@ -221,7 +269,17 @@ export const editServer = async (
   const { serverId } = c.req.param();
   const user = c.get("user");
 
-  if (!(await checkPermission(serverId, user.id, "edit server"))) {
+  const permServer = await DiscordServer.findById(serverId).lean();
+  if (!permServer) return c.json({ error: "Server not found" }, 404);
+  const isOwner = permServer.owner?.toString() === user.id;
+  const hasRole = permServer.members?.some(
+    (m: any) =>
+      m.user?.toString() === user.id &&
+      (m.roles?.includes("owner") ||
+        m.roles?.includes("admin") ||
+        m.roles?.includes("edit server"))
+  );
+  if (!isOwner && !hasRole) {
     return c.json({ error: "Permission denied" }, 403);
   }
 
@@ -229,7 +287,17 @@ export const editServer = async (
     const body = await c.req.formData();
     const newName = body.get("name") as string;
     const imageFile = body.get("imageFile") as File;
-    const updates: { name?: string; imageUrl?: string } = {};
+    const description = body.get("description") as string;
+    const serverType = body.get("serverType") as string as
+      | "public"
+      | "private"
+      | undefined;
+    const updates: {
+      name?: string;
+      imageUrl?: string;
+      description?: string;
+      visibility?: "public" | "private";
+    } = {};
 
     if (newName) updates.name = newName;
 
@@ -244,6 +312,11 @@ export const editServer = async (
       updates.imageUrl = cloudinaryResponse.secure_url;
     }
 
+    if (description !== undefined) updates.description = description;
+    if (serverType === "public" || serverType === "private") {
+      updates.visibility = serverType;
+    }
+
     if (Object.keys(updates).length === 0) {
       return c.json({ error: "No update data provided" }, 400);
     }
@@ -253,6 +326,21 @@ export const editServer = async (
       { $set: updates },
       { new: true }
     );
+
+    await AuditLog.create({
+      server: serverId,
+      action: "server_update",
+      performedBy: user.id,
+      details: `Server updated: ${Object.keys(updates).join(", ")}`,
+    });
+
+    const io = (c as any).get("io") as Server | undefined;
+    if (io) {
+      io.to(serverId.toString()).emit("server:updated", {
+        serverId,
+        updates,
+      });
+    }
 
     return c.json(
       { message: "Server updated successfully", server: updatedServer },
@@ -283,17 +371,45 @@ export const deleteServer = async (
   try {
     session.startTransaction();
 
-    await Channel.deleteMany({ server: serverId }, { session });
-    await Category.deleteMany({ server: serverId }, { session });
-    await Invite.deleteMany({ server: serverId }, { session });
+    const channelIds = await Channel.find({ server: serverId })
+      .select("_id")
+      .session(session);
+    const channelIdList = channelIds.map((c: any) => c._id);
+
+    await Promise.all([
+      Message.deleteMany({ server: serverId }, { session }),
+      Thread.deleteMany({ server: serverId }, { session }),
+      channelIdList.length
+        ? ChannelReadStatus.deleteMany(
+            { channel: { $in: channelIdList } },
+            { session }
+          )
+        : Promise.resolve(),
+      Invite.deleteMany({ server: serverId }, { session }),
+      AuditLog.deleteMany({ server: serverId }, { session }),
+      Notification.deleteMany({ "metadata.serverId": serverId }, { session }),
+    ]);
+
+    await Promise.all([
+      Channel.deleteMany({ server: serverId }, { session }),
+      Category.deleteMany({ server: serverId }, { session }),
+    ]);
+
     await User.updateMany(
       { servers: serverId },
       { $pull: { servers: serverId } },
       { session }
     );
+
     await DiscordServer.findByIdAndDelete(serverId, { session });
 
     await session.commitTransaction();
+
+    const io = (c as any).get("io") as Server | undefined;
+    if (io) {
+      io.to(serverId.toString()).emit("server:deleted", { serverId });
+    }
+
     return c.json({ message: "Server deleted successfully" }, 200);
   } catch (error) {
     await session.abortTransaction();
@@ -497,6 +613,49 @@ export const getAllServers = async (c: Context) => {
   }
 };
 
+export const getUnreadCounts = async (c: Context) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+  if (
+    !mongoose.Types.ObjectId.isValid(serverId) ||
+    !mongoose.Types.ObjectId.isValid(user?.id)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+  try {
+    const channels = await Channel.find({ server: serverId }).select("_id");
+    const channelIds = channels.map((c: any) => c._id);
+    if (channelIds.length === 0) return c.json({ counts: {} }, 200);
+
+    const readStatuses = await ChannelReadStatus.find({
+      user: user.id,
+      channel: { $in: channelIds },
+    }).select("channel lastReadAt lastReadMessage");
+
+    const statusByChannel = new Map<string, { lastReadAt?: Date }>();
+    for (const rs of readStatuses) {
+      statusByChannel.set(String(rs.channel), { lastReadAt: rs.lastReadAt });
+    }
+
+    const counts: Record<string, number> = {};
+    for (const chId of channelIds) {
+      const key = String(chId);
+      const lastReadAt = statusByChannel.get(key)?.lastReadAt;
+      if (!lastReadAt) {
+        counts[key] = 0;
+        continue;
+      }
+      const filter: any = { channel: chId, createdAt: { $gt: lastReadAt } };
+      counts[key] = await Message.countDocuments(filter);
+    }
+
+    return c.json({ counts }, 200);
+  } catch (error) {
+    console.error("Error computing unread counts:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
 export const editMemberRole = async (c: Context) => {
   const { serverId } = c.req.param();
   const body = await c.req.json();
@@ -533,6 +692,14 @@ export const editMemberRole = async (c: Context) => {
         },
         404
       );
+    }
+
+    const io = c.get("io") as Server | undefined;
+    if (io) {
+      io.to(serverId.toString()).emit("server:updated", {
+        serverId,
+        updates: { rolesChanged: true },
+      });
     }
 
     return c.json(
@@ -905,9 +1072,7 @@ export const requestJoinServer = async (
       return c.json({ error: "You are already a member of this server" }, 400);
     }
 
-    if (!server.joinRequests) {
-      server.joinRequests = [];
-    }
+    server.joinRequests ??= [];
 
     const existingRequest = server.joinRequests.find(
       (req: any) => req.user.toString() === user.id && req.status === "pending"

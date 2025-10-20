@@ -69,6 +69,8 @@ const MessageSchema = new Schema<IMessage>(
   { timestamps: true }
 );
 
-const Message = mongoose.model<IMessage>("Message", MessageSchema);
+MessageSchema.index({ server: 1, channel: 1, thread: 1, createdAt: -1 });
+MessageSchema.index({ content: "text" });
 
+const Message = mongoose.model<IMessage>("Message", MessageSchema);
 export default Message;

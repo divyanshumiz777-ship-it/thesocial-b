@@ -6,6 +6,33 @@ import Channel from "../models/Channel.ts";
 import ChannelReadStatus from "../models/ChannelReadStatus.ts";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { Buffer } from "node:buffer";
+import User from "../models/User.ts";
+import {
+  createNotification,
+  sendNotificationViaSocket,
+} from "./notificationController.ts";
+
+export const searchMessages = async (c: Context) => {
+  const { channelId } = c.req.param();
+  const query = c.req.query("q") || "";
+  const limit = Number.parseInt(c.req.query("limit") || "20", 10);
+  const skip = Number.parseInt(c.req.query("skip") || "0", 10);
+  if (!channelId || !query) {
+    return c.json({ error: "Channel ID and query required" }, 400);
+  }
+  try {
+    const filter = { channel: channelId, $text: { $search: query } };
+    const total = await Message.countDocuments(filter);
+    const messages = await Message.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    return c.json({ messages, total, limit, skip }, 200);
+  } catch (error) {
+    return c.json({ error: "Search failed" }, 500);
+  }
+};
 
 export const createMessage = async (c: Context) => {
   try {
@@ -14,29 +41,46 @@ export const createMessage = async (c: Context) => {
 
     const { channelId } = c.req.param();
     const user = c.get("user");
-    const formData = await c.req.formData();
-
-    const content = formData.get("content") as string;
+    const contentType = c.req.header("content-type") || "";
     const senderId = user.id;
-    const serverId = formData.get("serverId") as string;
-    const mentionsString = formData.get("mentions") as string | null;
-    const mentions = mentionsString ? JSON.parse(mentionsString) : [];
-    const replyToId = formData.get("replyTo") as string | null;
 
+    let content = "";
+    let serverId = "";
+    let mentions: any[] = [];
+    let replyToId: string | null = null;
+    let gifUrl: string | null = null;
+    let stickerUrl: string | null = null;
     const attachmentFiles: File[] = [];
-    const gifUrl = formData.get("gifUrl") as string | null;
-    const stickerUrl = formData.get("stickerUrl") as string | null;
 
-    let index = 0;
-    while (formData.get(`attachment${index}`)) {
-      const file = formData.get(`attachment${index}`) as File;
-      if (file) attachmentFiles.push(file);
-      index++;
-    }
+    if (contentType.includes("application/json")) {
+      const body = await c.req.json();
+      content = body.content ?? "";
+      serverId = body.serverId ?? "";
+      mentions = Array.isArray(body.mentions) ? body.mentions : [];
+      replyToId = body.replyTo ?? null;
+      gifUrl = body.gifUrl ?? null;
+      stickerUrl = body.stickerUrl ?? null;
+    } else {
+      const formData = await c.req.formData();
+      content = (formData.get("content") as string) ?? "";
+      serverId = (formData.get("serverId") as string) ?? "";
+      const mentionsString = formData.get("mentions") as string | null;
+      mentions = mentionsString ? JSON.parse(mentionsString) : [];
+      replyToId = (formData.get("replyTo") as string | null) ?? null;
+      gifUrl = (formData.get("gifUrl") as string | null) ?? null;
+      stickerUrl = (formData.get("stickerUrl") as string | null) ?? null;
 
-    const singleAttachment = formData.get("attachment") as File | null;
-    if (singleAttachment) {
-      attachmentFiles.push(singleAttachment);
+      let index = 0;
+      while (formData.get(`attachment${index}`)) {
+        const file = formData.get(`attachment${index}`) as File;
+        if (file) attachmentFiles.push(file);
+        index++;
+      }
+
+      const singleAttachment = formData.get("attachment") as File | null;
+      if (singleAttachment) {
+        attachmentFiles.push(singleAttachment);
+      }
     }
 
     if (
@@ -83,12 +127,10 @@ export const createMessage = async (c: Context) => {
       const buffer = Buffer.from(arrayBuffer);
 
       const fileType = getFileType(attachmentFile);
-      const resourceType =
-        fileType === "video"
-          ? "video"
-          : fileType === "audio"
-          ? "video"
-          : "auto";
+      let resourceType: "auto" | "video" = "auto";
+      if (fileType === "video" || fileType === "audio") {
+        resourceType = "video";
+      }
 
       const cloudinaryResponse = await uploadOnCloudinary(buffer, {
         folder: `attachments/${fileType}s`,
@@ -130,6 +172,12 @@ export const createMessage = async (c: Context) => {
     }
 
     io.to(channelId).emit("message", populatedMessage);
+    io.to(channelId).emit("messageCreated", populatedMessage);
+    io.to(serverId.toString()).emit("server:new-message", {
+      serverId: serverId.toString(),
+      channelId: channelId.toString(),
+      message: populatedMessage,
+    });
 
     if (mentions.length > 0) {
       mentions.forEach((userId: string) => {
@@ -139,6 +187,53 @@ export const createMessage = async (c: Context) => {
           serverId,
         });
       });
+
+      try {
+        const channelDoc = await Channel.findById(channelId).select("name");
+        const channelName = channelDoc?.name || "channel";
+        const senderName = (populatedMessage as any)?.sender?.name || "Someone";
+        const snippet = String(content || "").slice(0, 140);
+
+        for (const recipientId of mentions as string[]) {
+          if (!mongoose.Types.ObjectId.isValid(recipientId)) continue;
+          const recipient = await User.findById(recipientId).select("settings");
+          const level =
+            (recipient as any)?.settings?.notifications?.level || "all";
+          const mutedServers: string[] = (
+            (recipient as any)?.settings?.mutedServers || []
+          ).map(String);
+
+          const allowByLevel = level === "all" || level === "mentions";
+          const muted = mutedServers.includes(String(serverId));
+          if (!allowByLevel || muted) continue;
+
+          const actionUrl = `${
+            process.env.FRONTEND_URL || "http://localhost:3000"
+          }/community/${serverId}/${channelId}?messageId=${String(
+            (populatedMessage as any)?._id
+          )}`;
+
+          const notif = await createNotification({
+            recipient: String(recipientId),
+            sender: String(senderId),
+            type: "message_mention",
+            title: `Mentioned in #${channelName}`,
+            message: `${senderName}: ${snippet}`,
+            metadata: {
+              serverId,
+              channelId,
+              messageId: String((populatedMessage as any)?._id),
+            },
+            actionUrl,
+          });
+
+          if (notif) {
+            sendNotificationViaSocket(io, String(recipientId), notif);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to create mention notifications:", e);
+      }
     }
 
     await Channel.findByIdAndUpdate(channelId, {

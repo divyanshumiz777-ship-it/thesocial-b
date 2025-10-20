@@ -14,6 +14,21 @@ interface IUser extends Document {
   providerAccountId?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
+  settings?: {
+    privacy?: {
+      profileVisibility?: "public" | "private" | "friends";
+      allowDMRequests?: boolean;
+    };
+    notifications?: {
+      email?: boolean;
+      push?: boolean;
+      level?: "all" | "mentions" | "none";
+    };
+    theme?: string;
+    language?: string;
+    connectedAccounts?: Array<{ provider: string; accountId: string }>;
+    mutedServers?: Types.ObjectId[];
+  };
 }
 
 const UserSchema = new Schema<IUser>({
@@ -53,7 +68,38 @@ const UserSchema = new Schema<IUser>({
   roles: [{ type: Schema.Types.ObjectId, ref: "Role" }],
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date },
+  settings: {
+    privacy: {
+      profileVisibility: {
+        type: String,
+        enum: ["public", "private", "friends"],
+        default: "public",
+      },
+      allowDMRequests: { type: Boolean, default: true },
+    },
+    notifications: {
+      email: { type: Boolean, default: true },
+      push: { type: Boolean, default: true },
+      level: {
+        type: String,
+        enum: ["all", "mentions", "none"],
+        default: "all",
+      },
+    },
+    theme: { type: String, default: "light" },
+    language: { type: String, default: "en" },
+    connectedAccounts: [
+      {
+        provider: { type: String, required: true },
+        accountId: { type: String, required: true },
+      },
+    ],
+    mutedServers: [{ type: Schema.Types.ObjectId, ref: "DiscordServer" }],
+  },
 });
+UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ name: "text", email: "text" });
+UserSchema.index({ lastSeen: 1 });
 
 const User = mongoose.model<IUser>("User", UserSchema);
 

@@ -1,3 +1,91 @@
+export const getUserSettings = async (c: Context) => {
+  const { id } = c.get("user");
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return c.json({ error: "Invalid user ID format" }, 400);
+  }
+  try {
+    const user = await User.findById(id).select("settings");
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+    return c.json({ settings: user.settings }, 200);
+  } catch (error) {
+    console.error("Error fetching user settings:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const updateUserSettings = async (c: Context) => {
+  const { id } = c.get("user");
+  const body = await c.req.json();
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return c.json({ error: "Invalid user ID format" }, 400);
+  }
+  try {
+    const allowedFields = [
+      "privacy",
+      "notifications",
+      "theme",
+      "language",
+      "connectedAccounts",
+      "mutedServers",
+    ];
+    const update: any = {};
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        if (field === "theme" && typeof body[field] === "string") {
+          update[`settings.${field}`] = body[field].replace(
+            /[^a-zA-Z0-9_-]/g,
+            ""
+          );
+        } else if (field === "language" && typeof body[field] === "string") {
+          update[`settings.${field}`] = body[field].replace(/[^a-zA-Z-]/g, "");
+        } else if (
+          field === "connectedAccounts" &&
+          Array.isArray(body[field])
+        ) {
+          update[`settings.${field}`] = body[field].map((acc: any) => ({
+            provider: String(acc.provider).replace(/[^a-zA-Z0-9_-]/g, ""),
+            accountId: String(acc.accountId).replace(/[^a-zA-Z0-9_-]/g, ""),
+          }));
+        } else if (field === "mutedServers" && Array.isArray(body[field])) {
+          const cleaned = body[field].filter((id: any) =>
+            mongoose.Types.ObjectId.isValid(String(id))
+          );
+          update[`settings.${field}`] = cleaned;
+        } else if (
+          field === "notifications" &&
+          typeof body[field] === "object"
+        ) {
+          const notif = body[field] || {};
+          const nUpdate: any = {};
+          if (typeof notif.email === "boolean") nUpdate.email = notif.email;
+          if (typeof notif.push === "boolean") nUpdate.push = notif.push;
+          if (["all", "mentions", "none"].includes(notif.level))
+            nUpdate.level = notif.level;
+          update["settings.notifications"] = {
+            ...(update["settings.notifications"] || {}),
+            ...nUpdate,
+          };
+        } else {
+          update[`settings.${field}`] = body[field];
+        }
+      }
+    }
+    const user = await User.findByIdAndUpdate(
+      id,
+      { $set: update },
+      { new: true }
+    ).select("settings");
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+    return c.json({ settings: user.settings }, 200);
+  } catch (error) {
+    console.error("Error updating user settings:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
 import mongoose from "mongoose";
 import { Context } from "hono";
 import User from "../models/User.ts";

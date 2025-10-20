@@ -1,3 +1,5 @@
 node_modules
 .env.local
 .env.production
+.env.example
+.DS_Store
