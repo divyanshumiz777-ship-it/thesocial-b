@@ -13,6 +13,7 @@ import {
   removeFriend,
   getUserSettings,
   updateUserSettings,
+  updateLastSeen,
 } from "../controllers/userController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 
@@ -23,6 +24,7 @@ userRouter.get("/conversations", authMiddleware, getUserConversations);
 userRouter.get("/friends", authMiddleware, listFriends);
 userRouter.post("/friends/add", authMiddleware, addFriend);
 userRouter.post("/friends/remove", authMiddleware, removeFriend);
+userRouter.post("/update-last-seen", authMiddleware, updateLastSeen);
 userRouter.get("/all-user-detail", getAllUsers);
 userRouter.get("/user-detail/:id", getUser);
 userRouter.put("/user-detail/:id", editUser);

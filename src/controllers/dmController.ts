@@ -2,13 +2,18 @@ import { Context } from "hono";
 import mongoose from "mongoose";
 import Conversation from "../models/Conversation.ts";
 import Message from "../models/Message.ts";
+import User from "../models/User.ts";
 import { Server } from "socket.io";
 
 export const createDm = async (c: Context) => {
-  const { senderId, receiverId, content } = await c.req.json();
+  const { senderId, receiverId, content, attachments } = await c.req.json();
   const io = c.get("io") as Server | undefined;
 
-  if (!senderId || !receiverId || !content) {
+  if (
+    !senderId ||
+    !receiverId ||
+    (!content && (!attachments || attachments.length === 0))
+  ) {
     return c.json({ error: "Missing required fields" }, 400);
   }
   if (
@@ -19,6 +24,22 @@ export const createDm = async (c: Context) => {
   }
 
   try {
+    const sender = await User.findById(senderId);
+    if (!sender) {
+      return c.json({ error: "Sender not found" }, 404);
+    }
+
+    const isFriend = sender.friends?.includes(
+      mongoose.Types.ObjectId.createFromHexString(receiverId)
+    );
+
+    if (!isFriend) {
+      return c.json(
+        { error: "You can only message friends. Send a friend request first." },
+        403
+      );
+    }
+
     const participants = [senderId, receiverId].sort();
 
     let conversation = await Conversation.findOne({
@@ -33,6 +54,8 @@ export const createDm = async (c: Context) => {
       content,
       sender: senderId,
       conversationId: conversation._id,
+      attachmentsV2:
+        attachments && Array.isArray(attachments) ? attachments : [],
     });
 
     await Conversation.findByIdAndUpdate(conversation._id, {
@@ -91,8 +114,13 @@ export const editMessage = async (c: Context) => {
   }
 
   try {
+    const userId = user._id || user.id;
+    if (!userId) {
+      return c.json({ error: "User ID is required" }, 400);
+    }
+
     const updatedMessage = await Message.findOneAndUpdate(
-      { _id: messageId, sender: user._id },
+      { _id: messageId, sender: userId },
       { content, edited: true },
       { new: true }
     );
@@ -116,7 +144,7 @@ export const editMessage = async (c: Context) => {
 };
 export const deleteMessage = async (c: Context) => {
   const { conversationId } = c.req.param();
-  const { messageId, userId } = await c.req.json();
+  const { messageId, userId, deleteType } = await c.req.json();
   if (
     !mongoose.Types.ObjectId.isValid(messageId) ||
     !mongoose.Types.ObjectId.isValid(conversationId) ||
@@ -125,19 +153,55 @@ export const deleteMessage = async (c: Context) => {
     return c.json({ error: "Invalid ID format" }, 400);
   const io = c.get("io") as Server | undefined;
   try {
-    const deletedMessage = await Message.findOneAndDelete({
-      _id: messageId,
-      sender: userId,
-    });
-    if (!deletedMessage) {
+    const message = await Message.findById(messageId);
+    if (!message) {
       return c.json({ error: "Message not found" }, 404);
     }
+
+    if (
+      deleteType === "for-everyone" &&
+      message.sender.toString() !== userId.toString()
+    ) {
+      return c.json({ error: "Only the sender can delete for everyone" }, 403);
+    }
+
+    if (deleteType === "for-everyone") {
+      message.deletedForEveryone = true;
+      message.content = "[This message was deleted]";
+      message.attachmentsV2 = [];
+      message.attachments = [];
+      await message.save();
+
+      if (io) {
+        io.to(conversationId).emit("messageDeleted", {
+          messageId,
+          type: "for-everyone",
+        });
+      }
+    } else {
+      if (!message.deletedFor) {
+        message.deletedFor = [];
+      }
+
+      if (!message.deletedFor.includes(new mongoose.Types.ObjectId(userId))) {
+        message.deletedFor.push(new mongoose.Types.ObjectId(userId));
+      }
+
+      await message.save();
+
+      if (io) {
+        io.to(userId).emit("messageDeletedForMe", {
+          messageId,
+          type: "for-me",
+        });
+      }
+    }
+
     await Conversation.findByIdAndUpdate(conversationId, {
       $pull: { messages: messageId },
     });
-    if (io) {
-      io.to(conversationId).emit("messageDeleted", messageId);
-    }
+
+    return c.json({ message: "Message deleted successfully" }, 200);
   } catch (error) {
     console.error("Error deleting message:", error);
     return c.json({ error: "Failed to delete message" }, 500);
@@ -194,8 +258,14 @@ export const toggleReaction = async (c: Context) => {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
 
+    const userId = user._id || user.id;
+    if (!userId) {
+      return c.json({ error: "User ID is required" }, 400);
+    }
+
     const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
-    const userIdString = user._id.toString();
+    const userIdString = userId.toString();
+    const userObjectId = new (mongoose.Types.ObjectId as any)(userIdString);
 
     if (reactionIndex > -1) {
       const reaction = message.reactions[reactionIndex];
@@ -209,10 +279,10 @@ export const toggleReaction = async (c: Context) => {
           message.reactions.splice(reactionIndex, 1);
         }
       } else {
-        reaction.users.push(user._id);
+        reaction.users.push(userObjectId);
       }
     } else {
-      message.reactions.push({ emoji, users: [user._id] });
+      message.reactions.push({ emoji, users: [userObjectId] });
     }
     await message.save();
 

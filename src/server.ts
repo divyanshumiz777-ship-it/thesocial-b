@@ -148,6 +148,127 @@ async function startServer() {
         ioInstance.to(channelId).emit("typing", userId);
       });
 
+      socket.on(
+        "typing:start",
+        (data: { roomId: string; userId: string; userName?: string }) => {
+          if (!checkSocketRate(data.userId, "typing:start")) return;
+          const { roomId, userId, userName } = data;
+          const timeoutKey = `${roomId}-${userId}`;
+
+          if (typingTimeouts.has(timeoutKey)) {
+            clearTimeout(typingTimeouts.get(timeoutKey));
+          }
+
+          const newTimeout = setTimeout(() => {
+            ioInstance.to(roomId).emit("typing:stop", userId);
+            typingTimeouts.delete(timeoutKey);
+          }, 3000);
+
+          typingTimeouts.set(timeoutKey, newTimeout);
+          ioInstance.to(roomId).emit("typing:start", {
+            userId,
+            userName: userName || "User",
+            timestamp: Date.now(),
+          });
+        }
+      );
+
+      socket.on("typing:stop", (data: { roomId: string; userId: string }) => {
+        const { roomId, userId } = data;
+        const timeoutKey = `${roomId}-${userId}`;
+
+        if (typingTimeouts.has(timeoutKey)) {
+          clearTimeout(typingTimeouts.get(timeoutKey));
+          typingTimeouts.delete(timeoutKey);
+        }
+
+        ioInstance.to(roomId).emit("typing:stop", userId);
+      });
+
+      socket.on(
+        "friend:request-sent",
+        (data: {
+          senderId: string;
+          receiverId: string;
+          senderName: string;
+          senderProfilePic?: string;
+        }) => {
+          ioInstance.to(data.receiverId).emit("friend:request-received", {
+            senderId: data.senderId,
+            senderName: data.senderName,
+            senderProfilePic: data.senderProfilePic,
+            timestamp: Date.now(),
+          });
+        }
+      );
+
+      socket.on(
+        "friend:request-accepted",
+        (data: {
+          userId: string;
+          friendId: string;
+          userName: string;
+          friendName: string;
+        }) => {
+          ioInstance.to(data.userId).emit("friend:added", {
+            friendId: data.friendId,
+            friendName: data.friendName,
+            timestamp: Date.now(),
+          });
+
+          ioInstance.to(data.friendId).emit("friend:added", {
+            friendId: data.userId,
+            friendName: data.userName,
+            timestamp: Date.now(),
+          });
+        }
+      );
+
+      socket.on(
+        "friend:request-rejected",
+        (data: { userId: string; friendId: string }) => {
+          ioInstance.to(data.userId).emit("friend:request-removed", {
+            friendId: data.friendId,
+            timestamp: Date.now(),
+          });
+        }
+      );
+
+      socket.on(
+        "friend:removed",
+        (data: { userId: string; friendId: string }) => {
+          ioInstance.to(data.userId).emit("friend:removed-notification", {
+            friendId: data.friendId,
+            timestamp: Date.now(),
+          });
+
+          ioInstance.to(data.friendId).emit("friend:removed-notification", {
+            friendId: data.userId,
+            timestamp: Date.now(),
+          });
+        }
+      );
+
+      /**
+       * User Status Changed
+       * Broadcasts status to all friends
+       */
+      socket.on(
+        "user:status-changed",
+        (data: {
+          userId: string;
+          status: "online" | "idle" | "dnd" | "offline";
+          customStatus?: string;
+        }) => {
+          ioInstance.emit("user:status-updated", {
+            userId: data.userId,
+            status: data.status,
+            customStatus: data.customStatus,
+            timestamp: Date.now(),
+          });
+        }
+      );
+
       socket.on("disconnect", () => {
         if (connectedUserId) {
           const prev = onlineUsers.get(connectedUserId) || 0;

@@ -306,6 +306,34 @@ export const deleteUser = async (c: Context) => {
   }
 };
 
+export const updateLastSeen = async (c: Context) => {
+  const { id } = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return c.json({ error: "Invalid user ID format" }, 400);
+  }
+
+  try {
+    const updatedUser = await User.findByIdAndUpdate(
+      id,
+      { lastSeen: new Date() },
+      { new: true }
+    ).select("lastSeen");
+
+    if (!updatedUser) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    return c.json(
+      { message: "Last seen updated", lastSeen: updatedUser.lastSeen },
+      200
+    );
+  } catch (error) {
+    console.error("Error updating last seen:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
 export const joinServer = async (c: Context) => {
   const user = c.get("user");
   const id = user.id;

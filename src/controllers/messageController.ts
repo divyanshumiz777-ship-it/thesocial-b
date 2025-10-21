@@ -11,6 +11,11 @@ import {
   createNotification,
   sendNotificationViaSocket,
 } from "./notificationController.ts";
+import {
+  markdownToHtml,
+  markdownToPlainText,
+  hasMarkdown,
+} from "../lib/markdown.ts";
 
 export const searchMessages = async (c: Context) => {
   const { channelId } = c.req.param();
@@ -154,6 +159,10 @@ export const createMessage = async (c: Context) => {
       server: serverId,
       sender: senderId,
       content,
+      formattedContent: hasMarkdown(content)
+        ? markdownToHtml(content)
+        : content,
+      plainText: markdownToPlainText(content),
       mentions,
       attachments,
       attachmentsV2,
@@ -280,6 +289,7 @@ export const getMessagesByChannelId = async (c: Context) => {
 
 export const deleteMessage = async (c: Context) => {
   const { messageId, user } = c.req.param();
+  const { deleteType } = await c.req.json().catch(() => ({}));
   const io: Server = c.get("io");
   if (!messageId) {
     return c.json({ error: "Message ID is required" }, 400);
@@ -288,27 +298,51 @@ export const deleteMessage = async (c: Context) => {
     return c.json({ error: "Invalid message ID format" }, 400);
   }
   try {
-    const canDeleteMessage = await Message.findOne({
-      _id: messageId,
-      sender: user,
-    });
+    const message = await Message.findById(messageId);
 
-    if (!canDeleteMessage)
-      return c.json(
-        { error: "You do not have permission to delete messages" },
-        403
-      );
-
-    const deletedMessage = await Message.findByIdAndDelete(messageId);
-    if (!deletedMessage) {
+    if (!message) {
       return c.json({ error: "Message not found" }, 404);
     }
-    const channelIdString = deletedMessage.channel?.toString();
+
+    if (message.sender.toString() !== user) {
+      return c.json(
+        { error: "You do not have permission to delete this message" },
+        403
+      );
+    }
+
+    const channelIdString = message.channel?.toString();
     if (!channelIdString) {
       return c.json({ error: "Invalid channel ID" }, 400);
     }
 
-    io.to(channelIdString).emit("messageDeleted", messageId);
+    if (deleteType === "for-everyone") {
+      message.deletedForEveryone = true;
+      message.content = "[This message was deleted]";
+      message.attachmentsV2 = [];
+      message.attachments = [];
+      await message.save();
+
+      io.to(channelIdString).emit("messageDeleted", {
+        messageId,
+        type: "for-everyone",
+      });
+    } else {
+      if (!message.deletedFor) {
+        message.deletedFor = [];
+      }
+
+      if (!message.deletedFor.includes(new mongoose.Types.ObjectId(user))) {
+        message.deletedFor.push(new mongoose.Types.ObjectId(user));
+      }
+
+      await message.save();
+
+      io.to(user).emit("messageDeletedForMe", {
+        messageId,
+        type: "for-me",
+      });
+    }
 
     await Channel.updateOne(
       { messages: messageId },
@@ -383,7 +417,14 @@ export const updateMessage = async (c: Context) => {
     }
 
     const updateOperation: any = {
-      $set: { content, edited: true },
+      $set: {
+        content,
+        formattedContent: hasMarkdown(content)
+          ? markdownToHtml(content)
+          : content,
+        plainText: markdownToPlainText(content),
+        edited: true,
+      },
     };
 
     if (newAttachmentUrl) {
@@ -430,26 +471,27 @@ export const toggleReaction = async (c: Context) => {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
 
-    const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
     const userIdString = user._id.toString();
 
-    if (reactionIndex > -1) {
-      const reaction = message.reactions[reactionIndex];
+    for (const reaction of message.reactions) {
       const userIndex = reaction.users.findIndex(
         (u) => u.toString() === userIdString
       );
-
       if (userIndex > -1) {
         reaction.users.splice(userIndex, 1);
-        if (reaction.users.length === 0) {
-          message.reactions.splice(reactionIndex, 1);
-        }
-      } else {
-        reaction.users.push(user._id);
       }
+    }
+
+    message.reactions = message.reactions.filter((r) => r.users.length > 0);
+
+    const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
+
+    if (reactionIndex > -1) {
+      message.reactions[reactionIndex].users.push(user._id);
     } else {
       message.reactions.push({ emoji, users: [user._id] });
     }
+
     await message.save();
 
     io.to(conversationId).emit("reactionUpdated", message);

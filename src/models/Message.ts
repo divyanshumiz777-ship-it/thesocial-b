@@ -15,6 +15,8 @@ export interface IAttachment {
 
 export interface IMessage extends Document {
   content: string;
+  formattedContent?: string;
+  plainText?: string;
   sender: Types.ObjectId;
   edited: boolean;
   channel?: Types.ObjectId;
@@ -26,6 +28,8 @@ export interface IMessage extends Document {
   mentions: Types.ObjectId[];
   attachments: string[];
   attachmentsV2?: IAttachment[];
+  deletedFor?: Types.ObjectId[];
+  deletedForEveryone?: boolean;
 }
 
 const ReactionSchema = new Schema<IReaction>(
@@ -54,6 +58,8 @@ const AttachmentSchema = new Schema<IAttachment>(
 const MessageSchema = new Schema<IMessage>(
   {
     content: { type: String },
+    formattedContent: { type: String },
+    plainText: { type: String },
     sender: { type: Schema.Types.ObjectId, ref: "User", required: true },
     edited: { type: Boolean, default: false },
     channel: { type: Schema.Types.ObjectId, ref: "Channel" },
@@ -65,12 +71,14 @@ const MessageSchema = new Schema<IMessage>(
     mentions: [{ type: Schema.Types.ObjectId, ref: "User" }],
     attachments: [{ type: String }],
     attachmentsV2: [AttachmentSchema],
+    deletedFor: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    deletedForEveryone: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
 
 MessageSchema.index({ server: 1, channel: 1, thread: 1, createdAt: -1 });
-MessageSchema.index({ content: "text" });
+MessageSchema.index({ plainText: "text", content: "text" });
 
 const Message = mongoose.model<IMessage>("Message", MessageSchema);
 export default Message;

@@ -16,6 +16,8 @@ import { dmRouter } from "./routes/dmRoutes.ts";
 import { threadRouter } from "./routes/threadRoutes.ts";
 import { notificationRouter } from "./routes/notificationRoutes.ts";
 import { botRouter } from "./routes/botRoutes.ts";
+import attachmentRoutes from "./routes/attachmentRoutes.ts";
+import friendRoutes from "./routes/friendRoutes.ts";
 import { getIoInstance } from "./config/socket.ts";
 import { rateLimit } from "./middleware/rateLimit.ts";
 
@@ -26,7 +28,7 @@ app.use(
   cors({
     origin: (process.env.FRONTEND_URL as string) || "*",
     allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   })
 );
 
@@ -78,5 +80,7 @@ app.route("/api/v1/dm", dmRouter);
 app.route("/api/v1/thread", threadRouter);
 app.route("/api/v1/notification", notificationRouter);
 app.route("/api/v1/bot", botRouter);
+app.route("/api/v1/attachments", attachmentRoutes);
+app.route("/api/v1/friends", friendRoutes);
 
 export default app;
