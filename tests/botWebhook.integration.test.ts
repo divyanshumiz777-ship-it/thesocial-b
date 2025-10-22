@@ -56,14 +56,14 @@ let request;
 let validToken;
 
 beforeAll(async () => {
-  process.env.NODE_ENV = "test";
-  process.env.JWT_SECRET = "test-secret-key-for-testing-only";
+  (process.env as any).NODE_ENV = "test";
+  (process.env as any).JWT_SECRET = "test-secret-key-for-testing-only";
 
   const payload = {
     id: "test-user-id",
     email: "test@example.com",
   };
-  validToken = jwt.sign(payload, process.env.JWT_SECRET, {
+  validToken = jwt.sign(payload, process.env.JWT_SECRET!, {
     expiresIn: "1h",
   });
 
