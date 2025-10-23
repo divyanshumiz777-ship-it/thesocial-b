@@ -1,7 +1,7 @@
-import { MiddlewareHandler } from "hono";
+import { Context, Next } from "hono";
 import redis from "../lib/redis.ts";
 
-const cacheMiddleware: MiddlewareHandler = async (c, next) => {
+const cacheMiddleware = async (c: Context, next: Next) => {
   if (c.req.method !== "GET") {
     await next();
     return;

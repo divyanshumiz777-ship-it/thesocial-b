@@ -1,6 +1,6 @@
-import { MiddlewareHandler } from "hono";
+import { Context, Next } from "hono";
 
-const helmetMiddleware: MiddlewareHandler = async (c, next) => {
+const helmetMiddleware = async (c: Context, next: Next) => {
   c.res.headers.set("X-DNS-Prefetch-Control", "off");
   c.res.headers.set("X-Frame-Options", "SAMEORIGIN");
   c.res.headers.set(

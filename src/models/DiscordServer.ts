@@ -4,7 +4,7 @@ import {
   IMuted,
   IBanned,
   IJoinRequest,
-} from "./discordServer.types";
+} from "./discordServer.types.ts";
 
 const muted = new Schema<IMuted>(
   {

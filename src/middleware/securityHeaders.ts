@@ -1,6 +1,6 @@
-import { MiddlewareHandler } from "hono";
+import { Context, Next } from "hono";
 
-const securityHeaders: MiddlewareHandler = async (c, next) => {
+const securityHeaders = async (c: Context, next: Next) => {
   c.res.headers.set("X-Content-Type-Options", "nosniff");
   c.res.headers.set("X-Frame-Options", "DENY");
   c.res.headers.set("X-XSS-Protection", "1; mode=block");

@@ -198,7 +198,7 @@ export const addFriend = async (c: Context) => {
         friendId: id,
         friendName: me.name,
       },
-      actionUrl: `/community/@me/friends`,
+      actionUrl: `/community/me/friends`,
     });
 
     const io = c.get("io" as any) as Server | undefined;

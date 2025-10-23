@@ -1,10 +1,10 @@
-import { MiddlewareHandler } from "hono";
+import { Context, Next } from "hono";
 
 let requestCount = 0;
 let errorCount = 0;
 let lastRequestDuration = 0;
 
-export const metrics: MiddlewareHandler = async (c, next) => {
+export const metrics = async (c: Context, next: Next) => {
   const start = Date.now();
   try {
     await next();
@@ -16,7 +16,7 @@ export const metrics: MiddlewareHandler = async (c, next) => {
   }
 };
 
-export const metricsEndpoint: MiddlewareHandler = async (c) => {
+export const metricsEndpoint = async (c: Context) => {
   return c.text(`
     # HELP app_requests_total Total requests
     # TYPE app_requests_total counter

@@ -1,11 +1,11 @@
+import { Context, Hono } from "hono";
+import { cors } from "hono/cors";
 import cacheMiddleware from "./middleware/cacheMiddleware.ts";
 import requestLogger from "./middleware/requestLogger.ts";
 import securityHeaders from "./middleware/securityHeaders.ts";
 import helmetMiddleware from "./middleware/helmetMiddleware.ts";
 import Sentry from "./lib/sentry.ts";
 import { metrics, metricsEndpoint } from "./middleware/metrics.ts";
-import { Context, Hono } from "hono";
-import { cors } from "hono/cors";
 import { userRouter } from "./routes/userRoutes.ts";
 import { authRouter } from "./routes/authRoutes.ts";
 import { serverRouter } from "./routes/serverRoutes.ts";
