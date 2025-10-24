@@ -249,10 +249,6 @@ async function startServer() {
         }
       );
 
-      /**
-       * User Status Changed
-       * Broadcasts status to all friends
-       */
       socket.on(
         "user:status-changed",
         (data: {
