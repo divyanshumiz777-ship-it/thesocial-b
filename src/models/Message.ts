@@ -30,6 +30,13 @@ export interface IMessage extends Document {
   attachmentsV2?: IAttachment[];
   deletedFor?: Types.ObjectId[];
   deletedForEveryone?: boolean;
+  pinned?: boolean;
+  pinnedBy?: Types.ObjectId;
+  pinnedAt?: Date;
+  readBy?: Array<{
+    user: Types.ObjectId;
+    readAt: Date;
+  }>;
 }
 
 const ReactionSchema = new Schema<IReaction>(
@@ -73,6 +80,15 @@ const MessageSchema = new Schema<IMessage>(
     attachmentsV2: [AttachmentSchema],
     deletedFor: [{ type: Schema.Types.ObjectId, ref: "User" }],
     deletedForEveryone: { type: Boolean, default: false },
+    pinned: { type: Boolean, default: false },
+    pinnedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    pinnedAt: { type: Date },
+    readBy: [
+      {
+        user: { type: Schema.Types.ObjectId, ref: "User" },
+        readAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );

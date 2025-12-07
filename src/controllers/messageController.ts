@@ -323,6 +323,11 @@ export const deleteMessage = async (c: Context) => {
       message.attachments = [];
       await message.save();
 
+      await Channel.updateOne(
+        { messages: messageId },
+        { $pull: { messages: messageId } }
+      );
+
       io.to(channelIdString).emit("messageDeleted", {
         messageId,
         type: "for-everyone",
@@ -344,10 +349,6 @@ export const deleteMessage = async (c: Context) => {
       });
     }
 
-    await Channel.updateOne(
-      { messages: messageId },
-      { $pull: { messages: messageId } }
-    );
     return c.json({ message: "Message deleted successfully" }, 200);
   } catch (error) {
     console.error("Error deleting message:", error);
@@ -460,43 +461,78 @@ export const updateMessage = async (c: Context) => {
 
 export const toggleReaction = async (c: Context) => {
   const { messageId } = c.req.param();
-  const { emoji, user, conversationId } = await c.req.json();
+  const { emoji, channelId } = await c.req.json();
+  const user = c.get("user");
   const io: Server = c.get("io");
+
+  if (!user) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
   if (
     !mongoose.Types.ObjectId.isValid(messageId) ||
-    !mongoose.Types.ObjectId.isValid(conversationId)
+    !mongoose.Types.ObjectId.isValid(channelId)
   )
     return c.json({ error: "Invalid ID format" }, 400);
+
   try {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
 
     const userIdString = user._id.toString();
 
-    for (const reaction of message.reactions) {
-      const userIndex = reaction.users.findIndex(
+    const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
+    const hasThisReaction =
+      reactionIndex > -1 &&
+      message.reactions[reactionIndex].users.some(
         (u) => u.toString() === userIdString
       );
-      if (userIndex > -1) {
-        reaction.users.splice(userIndex, 1);
+
+    if (hasThisReaction) {
+      const userIndex = message.reactions[reactionIndex].users.findIndex(
+        (u) => u.toString() === userIdString
+      );
+      message.reactions[reactionIndex].users.splice(userIndex, 1);
+
+      if (message.reactions[reactionIndex].users.length === 0) {
+        message.reactions.splice(reactionIndex, 1);
       }
-    }
-
-    message.reactions = message.reactions.filter((r) => r.users.length > 0);
-
-    const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
-
-    if (reactionIndex > -1) {
-      message.reactions[reactionIndex].users.push(user._id);
     } else {
-      message.reactions.push({ emoji, users: [user._id] });
+      for (const reaction of message.reactions) {
+        const userIndex = reaction.users.findIndex(
+          (u) => u.toString() === userIdString
+        );
+        if (userIndex > -1) {
+          reaction.users.splice(userIndex, 1);
+        }
+      }
+
+      message.reactions = message.reactions.filter((r) => r.users.length > 0);
+
+      const newReactionIndex = message.reactions.findIndex(
+        (r) => r.emoji === emoji
+      );
+      if (newReactionIndex > -1) {
+        message.reactions[newReactionIndex].users.push(user._id);
+      } else {
+        message.reactions.push({ emoji, users: [user._id] });
+      }
     }
 
     await message.save();
 
-    io.to(conversationId).emit("reactionUpdated", message);
+    io.to(channelId).emit("reactionUpdated", {
+      messageId: message._id,
+      reactions: message.reactions,
+    });
 
-    return c.json({ message: "Reaction updated successfully" }, 200);
+    return c.json(
+      {
+        message: "Reaction updated successfully",
+        reactions: message.reactions,
+      },
+      200
+    );
   } catch (error) {
     console.error("Error adding reaction:", error);
     return c.json({ error: "Failed to add reaction" }, 500);

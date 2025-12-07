@@ -2,6 +2,7 @@ import { Context } from "hono";
 import User from "../models/User.ts";
 import FriendRequest from "../models/FriendRequest.ts";
 import mongoose from "mongoose";
+import { getIoInstance } from "../config/socket.ts";
 
 export const sendFriendRequest = async (c: Context) => {
   try {
@@ -36,11 +37,46 @@ export const sendFriendRequest = async (c: Context) => {
         { sender: senderId, receiver: receiverId },
         { sender: receiverId, receiver: senderId },
       ],
-      status: "pending",
     });
 
     if (existingRequest) {
-      return c.json({ error: "Friend request already exists" }, 400);
+      if (existingRequest.status === "pending") {
+        await existingRequest.populate([
+          { path: "sender", select: "name profilePic email" },
+          { path: "receiver", select: "name profilePic email" },
+        ]);
+        return c.json(
+          {
+            error: "Friend request already exists",
+            friendRequest: existingRequest,
+          },
+          400
+        );
+      }
+
+      existingRequest.sender = new mongoose.Types.ObjectId(senderId);
+      existingRequest.receiver = new mongoose.Types.ObjectId(receiverId);
+      existingRequest.status = "pending";
+      existingRequest.createdAt = new Date();
+      await existingRequest.save();
+
+      await existingRequest.populate([
+        { path: "sender", select: "name profilePic email" },
+        { path: "receiver", select: "name profilePic email" },
+      ]);
+
+      const io = getIoInstance();
+      io.to(receiverId).emit("friend_request_received", {
+        friendRequest: existingRequest.toObject(),
+      });
+
+      return c.json(
+        {
+          message: "Friend request sent",
+          friendRequest: existingRequest,
+        },
+        201
+      );
     }
 
     const friendRequest = new FriendRequest({
@@ -56,6 +92,11 @@ export const sendFriendRequest = async (c: Context) => {
       { path: "receiver", select: "name profilePic email" },
     ]);
 
+    const io = getIoInstance();
+    io.to(receiverId).emit("friend_request_received", {
+      friendRequest: friendRequest.toObject(),
+    });
+
     return c.json(
       {
         message: "Friend request sent",
@@ -63,8 +104,18 @@ export const sendFriendRequest = async (c: Context) => {
       },
       201
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error sending friend request:", error);
+
+    if (error.code === 11000) {
+      return c.json(
+        {
+          error: "Friend request already exists. Please refresh and try again.",
+        },
+        400
+      );
+    }
+
     return c.json({ error: "Failed to send friend request" }, 500);
   }
 };
@@ -147,9 +198,29 @@ export const acceptFriendRequest = async (c: Context) => {
       { path: "receiver", select: "name profilePic email" },
     ]);
 
+    const sender = await User.findById(friendRequest.sender).select(
+      "name profilePic email lastSeen"
+    );
+    const receiver = await User.findById(friendRequest.receiver).select(
+      "name profilePic email lastSeen"
+    );
+
+    const io = getIoInstance();
+
+    io.to(userId).emit("friend_request_accepted", {
+      friendRequest: friendRequest.toObject(),
+      newFriend: sender,
+    });
+
+    io.to(friendRequest.sender.toString()).emit("friend_request_accepted", {
+      friendRequest: friendRequest.toObject(),
+      newFriend: receiver,
+    });
+
     return c.json({
       message: "Friend request accepted",
       friendRequest,
+      newFriend: sender,
     });
   } catch (error) {
     console.error("Error accepting friend request:", error);
@@ -182,6 +253,16 @@ export const rejectFriendRequest = async (c: Context) => {
 
     friendRequest.status = "rejected";
     await friendRequest.save();
+
+    await friendRequest.populate([
+      { path: "sender", select: "name profilePic email" },
+      { path: "receiver", select: "name profilePic email" },
+    ]);
+
+    const io = getIoInstance();
+    io.to(friendRequest.sender.toString()).emit("friend_request_rejected", {
+      friendRequest: friendRequest.toObject(),
+    });
 
     return c.json({
       message: "Friend request rejected",
@@ -266,6 +347,16 @@ export const removeFriend = async (c: Context) => {
 
     await User.findByIdAndUpdate(friendId, {
       $pull: { friends: userId },
+    });
+
+    const io = getIoInstance();
+
+    io.to(userId).emit("friend_removed", {
+      friendId,
+    });
+
+    io.to(friendId).emit("friend_removed", {
+      friendId: userId,
     });
 
     return c.json({

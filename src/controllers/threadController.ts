@@ -411,26 +411,63 @@ export const toggleReaction = async (c: Context) => {
     }
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
-    const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
+
     const userIdString = user._id.toString();
-    if (reactionIndex > -1) {
-      const reaction = message.reactions[reactionIndex];
-      const userIndex = reaction.users.findIndex(
+
+    const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
+    const hasThisReaction =
+      reactionIndex > -1 &&
+      message.reactions[reactionIndex].users.some(
         (u) => u.toString() === userIdString
       );
-      if (userIndex > -1) {
-        reaction.users.splice(userIndex, 1);
-        if (reaction.users.length === 0) {
-          message.reactions.splice(reactionIndex, 1);
-        }
-      } else {
-        reaction.users.push(user._id);
+
+    if (hasThisReaction) {
+      const userIndex = message.reactions[reactionIndex].users.findIndex(
+        (u) => u.toString() === userIdString
+      );
+      message.reactions[reactionIndex].users.splice(userIndex, 1);
+
+      if (message.reactions[reactionIndex].users.length === 0) {
+        message.reactions.splice(reactionIndex, 1);
       }
     } else {
-      message.reactions.push({ emoji, users: [user._id] });
+      for (const reaction of message.reactions) {
+        const userIndex = reaction.users.findIndex(
+          (u) => u.toString() === userIdString
+        );
+        if (userIndex > -1) {
+          reaction.users.splice(userIndex, 1);
+        }
+      }
+
+      message.reactions = message.reactions.filter((r) => r.users.length > 0);
+
+      const newReactionIndex = message.reactions.findIndex(
+        (r) => r.emoji === emoji
+      );
+      if (newReactionIndex > -1) {
+        message.reactions[newReactionIndex].users.push(user._id);
+      } else {
+        message.reactions.push({ emoji, users: [user._id] });
+      }
     }
+
     await message.save();
-    return c.json({ message: "Reaction updated successfully" }, 200);
+    const io: Server = c.get("io");
+    if (io && conversationId) {
+      io.to(conversationId).emit("reactionUpdated", {
+        messageId: message._id,
+        reactions: message.reactions,
+      });
+    }
+
+    return c.json(
+      {
+        message: "Reaction updated successfully",
+        reactions: message.reactions,
+      },
+      200
+    );
   } catch (error) {
     console.error("Error adding reaction:", error);
     return c.json({ error: "Failed to add reaction" }, 500);

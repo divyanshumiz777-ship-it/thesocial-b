@@ -30,8 +30,7 @@ const GroupSchema = new Schema<IGroup>(
     },
     icon: {
       type: String,
-      default:
-        "https://res.cloudinary.com/dv4wxcduy/image/upload/v1234567890/default-group-icon.png",
+      required: false,
     },
     owner: {
       type: Schema.Types.ObjectId,

@@ -8,12 +8,19 @@ interface IUser extends Document {
   roles?: Types.ObjectId[];
   password?: string;
   profilePic?: string;
+  about?: string;
   dms?: Types.ObjectId[];
   friends?: Types.ObjectId[];
+  blockedUsers?: Types.ObjectId[];
   provider: string;
   providerAccountId?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
+  customStatus?: {
+    text?: string;
+    emoji?: string;
+    expiresAt?: Date;
+  };
   settings?: {
     privacy?: {
       profileVisibility?: "public" | "private" | "friends";
@@ -59,8 +66,14 @@ const UserSchema = new Schema<IUser>({
     type: String,
     default: "",
   },
+  about: {
+    type: String,
+    default: "",
+    maxlength: 190,
+  },
   dms: [{ type: Schema.Types.ObjectId, ref: "DirectMessage" }],
   friends: [{ type: Schema.Types.ObjectId, ref: "User" }],
+  blockedUsers: [{ type: Schema.Types.ObjectId, ref: "User" }],
   lastSeen: { type: Date, default: Date.now },
   provider: { type: String, default: "credentials" },
   providerAccountId: { type: String },
@@ -68,6 +81,11 @@ const UserSchema = new Schema<IUser>({
   roles: [{ type: Schema.Types.ObjectId, ref: "Role" }],
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date },
+  customStatus: {
+    text: { type: String, maxlength: 128 },
+    emoji: { type: String, maxlength: 50 },
+    expiresAt: { type: Date },
+  },
   settings: {
     privacy: {
       profileVisibility: {

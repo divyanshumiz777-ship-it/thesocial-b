@@ -95,6 +95,7 @@ import {
   createNotification,
   sendNotificationViaSocket,
 } from "./notificationController.ts";
+import { getIoInstance } from "../config/socket.ts";
 
 export const getAllUsers = async (c: Context) => {
   try {
@@ -426,31 +427,41 @@ export const userServers = async (c: Context) => {
   const { id } = c.get("user");
 
   const page = parseInt(c.req.query("page") || "1", 10);
-  const limit = parseInt(c.req.query("limit") || "10", 10);
+  const limit = parseInt(c.req.query("limit") || "50", 10);
   const skip = (page - 1) * limit;
 
   try {
-    const totalServers = await DiscordServer.countDocuments({
-      members: { $elemMatch: { user: id } },
-    });
+    const query = {
+      $or: [{ owner: id }, { members: { $elemMatch: { user: id } } }],
+    };
 
-    const servers = await DiscordServer.find({
-      members: { $elemMatch: { user: id } },
-    })
+    const totalServers = await DiscordServer.countDocuments(query);
+
+    const servers = await DiscordServer.find(query)
+      .populate("owner", "name email profilePic")
+      .populate({
+        path: "members.user",
+        select: "name email profilePic lastSeen",
+      })
+      .sort({ updatedAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     if (servers.length === 0 && totalServers === 0) {
       return c.json({
         servers: [],
         totalPages: 0,
         currentPage: page,
+        totalServers: 0,
       });
     }
+
     return c.json({
       servers,
       totalPages: Math.ceil(totalServers / limit),
       currentPage: page,
+      totalServers,
     });
   } catch (error) {
     console.error("Error fetching user servers:", error);
@@ -470,6 +481,15 @@ export const getUserConversations = async (c: Context) => {
 
     const conversations = await Conversation.find({
       participants: { $in: [id] },
+      $or: [{ hiddenFor: { $exists: false } }, { hiddenFor: { $nin: [id] } }],
+      $and: [
+        {
+          $or: [
+            { deletedFor: { $exists: false } },
+            { deletedFor: { $nin: [id] } },
+          ],
+        },
+      ],
     })
       .populate({
         path: "participants",
@@ -515,15 +535,21 @@ export const getUserConversations = async (c: Context) => {
           ? conv.messages[0]
           : null;
 
-      const lastMessage = lastMsgDoc
-        ? {
-            _id: lastMsgDoc._id,
-            content: lastMsgDoc.content,
-            sender: lastMsgDoc.sender,
-            createdAt: lastMsgDoc.createdAt,
-            edited: lastMsgDoc.edited || false,
-          }
-        : null;
+      const deletedAt = conv.deletedAt?.get(id.toString());
+      const shouldShowLastMessage =
+        !deletedAt ||
+        (lastMsgDoc && new Date(lastMsgDoc.createdAt) > deletedAt);
+
+      const lastMessage =
+        lastMsgDoc && shouldShowLastMessage
+          ? {
+              _id: lastMsgDoc._id,
+              content: lastMsgDoc.content,
+              sender: lastMsgDoc.sender,
+              createdAt: lastMsgDoc.createdAt,
+              edited: lastMsgDoc.edited || false,
+            }
+          : null;
 
       return {
         _id: conv._id,
@@ -538,6 +564,94 @@ export const getUserConversations = async (c: Context) => {
     return c.json({ conversations: formattedConversations }, 200);
   } catch (error) {
     console.error("Error fetching user conversations:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+export const updateProfile = async (c: Context) => {
+  const { id } = c.req.param();
+  const { id: userId } = c.get("user");
+
+  if (
+    !mongoose.Types.ObjectId.isValid(id) ||
+    !mongoose.Types.ObjectId.isValid(userId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+
+  if (id !== userId) {
+    return c.json({ error: "You can only update your own profile" }, 403);
+  }
+
+  try {
+    const body = await c.req.parseBody();
+    const { name, about } = body;
+    let profilePic = body.profilePic as File | undefined;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    if (name && typeof name === "string") {
+      user.name = name.trim().substring(0, 50);
+    }
+
+    if (about !== undefined) {
+      if (typeof about === "string") {
+        // @ts-ignore - about field exists but not in type
+        user.about = about.trim().substring(0, 190);
+      }
+    }
+
+    if (profilePic && profilePic.size > 0) {
+      const { uploadOnCloudinary } = await import("../lib/cloudinary.ts");
+      const arrayBuffer = await profilePic.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const cloudinaryResponse = await uploadOnCloudinary(buffer, {
+        folder: "profile_pics",
+      });
+
+      if (cloudinaryResponse) {
+        user.profilePic = cloudinaryResponse.secure_url;
+      }
+    }
+
+    await user.save();
+
+    const io = getIoInstance();
+    if (io) {
+      io.emit("user:profile-changed", {
+        userId: String(user._id),
+        name: user.name,
+        profilePic: user.profilePic,
+        // @ts-ignore
+        about: user.about,
+        timestamp: Date.now(),
+      });
+      console.log("Profile update broadcasted via socket:", {
+        userId: String(user._id),
+        name: user.name,
+      });
+    }
+
+    return c.json(
+      {
+        message: "Profile updated successfully",
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          profilePic: user.profilePic,
+          // @ts-ignore
+          about: user.about,
+        },
+      },
+      200
+    );
+  } catch (error) {
+    console.error("Error updating profile:", error);
     return c.json({ error: "Internal server error" }, 500);
   }
 };

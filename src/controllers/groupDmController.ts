@@ -65,8 +65,7 @@ export const createGroup = async (c: Context) => {
       return c.json({ error: "Need at least 2 members" }, 400);
     }
 
-    let iconUrl: string =
-      "https://res.cloudinary.com/dv4wxcduy/image/upload/v1234567890/default-group-icon.png";
+    let iconUrl: string | undefined = undefined;
 
     if (iconFile && iconFile instanceof File) {
       try {
@@ -78,8 +77,8 @@ export const createGroup = async (c: Context) => {
           resource_type: "image",
         });
 
-        if (uploadResult?.url) {
-          iconUrl = uploadResult.url;
+        if (uploadResult?.secure_url) {
+          iconUrl = uploadResult.secure_url;
         }
       } catch (error) {
         console.error("Error uploading group icon:", error);
@@ -779,7 +778,7 @@ export const sendMessage = async (c: Context) => {
     await message.populate("sender", "name email profilePic");
 
     const io = getIoInstance();
-    io.to(groupId).emit("group-dm:message", {
+    io.to(groupId).emit("group_message", {
       groupId,
       message: message.toObject(),
     });
@@ -788,6 +787,170 @@ export const sendMessage = async (c: Context) => {
   } catch (error) {
     console.error("Error sending message:", error);
     return c.json({ error: "Failed to send message" }, 500);
+  }
+};
+
+const editGroupMessage = async (c: Context) => {
+  try {
+    const userId = c.get("userId");
+    const { groupId, messageId } = c.req.param();
+    const { content } = await c.req.json();
+
+    if (!content || !content.trim()) {
+      return c.json({ error: "Message content cannot be empty" }, 400);
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) return c.json({ error: "Group not found" }, 404);
+
+    const isParticipant = group.participants.some(
+      (p: any) => p.toString() === userId
+    );
+    if (!isParticipant && group.owner?.toString() !== userId) {
+      return c.json({ error: "Not a member of this group" }, 403);
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) return c.json({ error: "Message not found" }, 404);
+
+    if (message.sender.toString() !== userId) {
+      return c.json({ error: "You can only edit your own messages" }, 403);
+    }
+
+    message.content = content.trim();
+    message.edited = true;
+    await message.save();
+
+    await message.populate("sender", "name email profilePic");
+
+    const io = getIoInstance();
+    io.to(groupId).emit("message_updated", message.toObject());
+
+    return c.json({ success: true, message: message.toObject() }, 200);
+  } catch (error) {
+    console.error("Error editing message:", error);
+    return c.json({ error: "Failed to edit message" }, 500);
+  }
+};
+
+const deleteGroupMessage = async (c: Context) => {
+  try {
+    const userId = c.get("userId");
+    const { groupId, messageId } = c.req.param();
+
+    const group = await Group.findById(groupId);
+    if (!group) return c.json({ error: "Group not found" }, 404);
+
+    const isParticipant = group.participants.some(
+      (p: any) => p.toString() === userId
+    );
+    const isOwner = group.owner?.toString() === userId;
+    const isAdmin = group.admins?.some((a: any) => a.toString() === userId);
+
+    if (!isParticipant && !isOwner) {
+      return c.json({ error: "Not a member of this group" }, 403);
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) return c.json({ error: "Message not found" }, 404);
+
+    if (message.sender.toString() !== userId && !isOwner && !isAdmin) {
+      return c.json({ error: "Not authorized to delete this message" }, 403);
+    }
+
+    await Message.findByIdAndDelete(messageId);
+
+    group.messages = group.messages.filter(
+      (msgId: any) => msgId.toString() !== messageId
+    );
+    await group.save();
+
+    const io = getIoInstance();
+    io.to(groupId).emit("message_deleted", messageId);
+
+    return c.json({ success: true, messageId }, 200);
+  } catch (error) {
+    console.error("Error deleting message:", error);
+    return c.json({ error: "Failed to delete message" }, 500);
+  }
+};
+
+const toggleGroupReaction = async (c: Context) => {
+  try {
+    const authUserId = c.get("userId");
+    const { groupId, messageId } = c.req.param();
+    const { emoji, userId } = await c.req.json();
+
+    if (!emoji) {
+      return c.json({ error: "Emoji is required" }, 400);
+    }
+
+    const group = await Group.findById(groupId);
+    if (!group) return c.json({ error: "Group not found" }, 404);
+
+    const isParticipant = group.participants.some(
+      (p: any) => p.toString() === authUserId
+    );
+    if (!isParticipant && group.owner?.toString() !== authUserId) {
+      return c.json({ error: "Not a member of this group" }, 403);
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) return c.json({ error: "Message not found" }, 404);
+
+    const userObjectId = new mongoose.Types.ObjectId(userId || authUserId);
+
+    const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
+
+    if (reactionIndex > -1) {
+      const hasReacted = message.reactions[reactionIndex].users.some(
+        (u) => u.toString() === userObjectId.toString()
+      );
+
+      if (hasReacted) {
+        message.reactions[reactionIndex].users = message.reactions[
+          reactionIndex
+        ].users.filter((u) => u.toString() !== userObjectId.toString());
+
+        if (message.reactions[reactionIndex].users.length === 0) {
+          message.reactions.splice(reactionIndex, 1);
+        }
+      } else {
+        message.reactions.forEach((reaction) => {
+          reaction.users = reaction.users.filter(
+            (u) => u.toString() !== userObjectId.toString()
+          );
+        });
+        message.reactions = message.reactions.filter((r) => r.users.length > 0);
+
+        message.reactions[reactionIndex].users.push(userObjectId);
+      }
+    } else {
+      message.reactions.forEach((reaction) => {
+        reaction.users = reaction.users.filter(
+          (u) => u.toString() !== userObjectId.toString()
+        );
+      });
+      message.reactions = message.reactions.filter((r) => r.users.length > 0);
+
+      message.reactions.push({
+        emoji,
+        users: [userObjectId],
+      });
+    }
+
+    await message.save();
+
+    const io = getIoInstance();
+    io.to(groupId).emit("reaction_updated", {
+      messageId,
+      reactions: message.reactions,
+    });
+
+    return c.json({ success: true, reactions: message.reactions }, 200);
+  } catch (error) {
+    console.error("Error toggling reaction:", error);
+    return c.json({ error: "Failed to toggle reaction" }, 500);
   }
 };
 
@@ -803,5 +966,11 @@ groupDmController.put("/:groupId/update", updateGroup);
 groupDmController.delete("/:groupId/delete", deleteGroup);
 groupDmController.get("/:groupId/members", getGroupMembers);
 groupDmController.post("/:groupId/messages", sendMessage);
+groupDmController.put("/:groupId/messages/:messageId", editGroupMessage);
+groupDmController.delete("/:groupId/messages/:messageId", deleteGroupMessage);
+groupDmController.put(
+  "/:groupId/messages/:messageId/reaction",
+  toggleGroupReaction
+);
 
 export default groupDmController;

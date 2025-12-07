@@ -70,6 +70,8 @@ const DiscordServerSchema = new Schema<IDiscordServer>(
 
 DiscordServerSchema.index({ name: "text" });
 DiscordServerSchema.index({ owner: 1 });
+DiscordServerSchema.index({ "members.user": 1 });
+DiscordServerSchema.index({ updatedAt: -1 });
 
 const DiscordServer = mongoose.model<IDiscordServer>(
   "DiscordServer",

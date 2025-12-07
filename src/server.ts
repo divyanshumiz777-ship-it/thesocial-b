@@ -265,6 +265,25 @@ async function startServer() {
         }
       );
 
+      socket.on(
+        "user:profile-updated",
+        (data: {
+          userId: string;
+          name?: string;
+          profilePic?: string;
+          about?: string;
+          timestamp: number;
+        }) => {
+          ioInstance.emit("user:profile-changed", {
+            userId: data.userId,
+            name: data.name,
+            profilePic: data.profilePic,
+            about: data.about,
+            timestamp: data.timestamp,
+          });
+        }
+      );
+
       socket.on("disconnect", () => {
         if (connectedUserId) {
           const prev = onlineUsers.get(connectedUserId) || 0;
