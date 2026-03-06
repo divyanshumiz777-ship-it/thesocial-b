@@ -18,6 +18,7 @@ import { notificationRouter } from "./routes/notificationRoutes.ts";
 import { botRouter } from "./routes/botRoutes.ts";
 import attachmentRoutes from "./routes/attachmentRoutes.ts";
 import friendRoutes from "./routes/friendRoutes.ts";
+import { reelRouter } from "./routes/reelRoutes.ts";
 import { getIoInstance } from "./config/socket.ts";
 import { rateLimit } from "./middleware/rateLimit.ts";
 
@@ -29,7 +30,7 @@ app.use(
     origin: (process.env.FRONTEND_URL as string) || "*",
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  })
+  }),
 );
 
 const isTest = process.env.NODE_ENV === "test";
@@ -58,7 +59,7 @@ app.use("*", rateLimit);
 
 app.get("/", (c) => c.text("Hello World from Hono App!"));
 app.get("/healthz", (c) =>
-  c.json({ status: "ok", uptime: process.uptime(), timestamp: Date.now() })
+  c.json({ status: "ok", uptime: process.uptime(), timestamp: Date.now() }),
 );
 
 app.onError((err, c) => {
@@ -82,5 +83,6 @@ app.route("/api/v1/notification", notificationRouter);
 app.route("/api/v1/bot", botRouter);
 app.route("/api/v1/attachments", attachmentRoutes);
 app.route("/api/v1/friends", friendRoutes);
+app.route("/api/v1/reels", reelRouter);
 
 export default app;

@@ -19,12 +19,23 @@ import { authMiddleware } from "../middleware/authMiddleware.ts";
 
 export const authRouter = new Hono();
 
+// Custom error handler for zValidator
+const handleValidationError = (result: any, c: any) => {
+  if (!result.success) {
+    console.error("Validation Error:", result.error);
+    return c.json(
+      { message: "Invalid request data", errors: result.error },
+      400,
+    );
+  }
+};
+
 authRouter.post("/register", zValidator("form", registerSchema), registerUser);
 
 authRouter.post(
   "/provider-login",
   zValidator("json", providerLoginSchema),
-  providerLogin
+  providerLogin,
 );
 
 authRouter.post("/login", zValidator("json", loginSchema), loginUser);
@@ -33,5 +44,5 @@ authRouter.post(
   "/link-provider",
   authMiddleware,
   zValidator("json", linkProviderSchema),
-  linkProvider
+  linkProvider,
 );

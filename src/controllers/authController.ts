@@ -15,7 +15,7 @@ export const registerUser = async (
     any,
     any,
     { in: { form: RegisterSchema }; out: { form: RegisterSchema } }
-  >
+  >,
 ) => {
   const body = c.req.valid("form");
 
@@ -52,7 +52,7 @@ export const registerUser = async (
     console.error("Registration Error:", error);
     return c.json(
       { message: "Internal server error during registration" },
-      500
+      500,
     );
   }
 };
@@ -62,11 +62,11 @@ export const providerLogin = async (
     any,
     any,
     { in: { json: ProviderLoginSchema }; out: { json: ProviderLoginSchema } }
-  >
+  >,
 ) => {
-  const body = c.req.valid("json");
-
   try {
+    const body = c.req.valid("json");
+
     const existingUser = await User.findOne({ email: body.email });
 
     if (existingUser) {
@@ -82,14 +82,14 @@ export const providerLogin = async (
               "This email is already registered with a password. Please sign in to link your account.",
             code: "ACCOUNT_EXISTS_WITH_PASSWORD",
           },
-          409
+          409,
         );
       } else {
         return c.json(
           {
             message: `You have already signed up with ${existingUser.provider}.`,
           },
-          409
+          409,
         );
       }
     } else {
@@ -106,9 +106,11 @@ export const providerLogin = async (
     }
   } catch (error) {
     console.error("Provider Login Error:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Error details:", message);
     return c.json(
-      { message: "Internal server error during provider login" },
-      500
+      { message: `Internal server error during provider login: ${message}` },
+      500,
     );
   }
 };
@@ -118,7 +120,7 @@ export const linkProvider = async (
     any,
     any,
     { in: { json: LinkProviderSchema }; out: { json: LinkProviderSchema } }
-  >
+  >,
 ) => {
   const loggedInUser = c.get("user");
   if (!loggedInUser) {
@@ -146,7 +148,7 @@ export const linkProvider = async (
     console.error("Link Provider Error:", error);
     return c.json(
       { message: "Internal server error during account linking" },
-      500
+      500,
     );
   }
 };
@@ -156,7 +158,7 @@ export const loginUser = async (
     any,
     any,
     { in: { json: LoginSchema }; out: { json: LoginSchema } }
-  >
+  >,
 ) => {
   const body = c.req.valid("json");
 

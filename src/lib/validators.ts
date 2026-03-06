@@ -15,7 +15,7 @@ export const loginSchema = z.object({
 export const providerLoginSchema = z.object({
   email: z.string().email(),
   name: z.string(),
-  profilePic: z.string().url().optional(),
+  profilePic: z.string().url().optional().nullable(),
   provider: z.string(),
   providerAccountId: z.string(),
 });
