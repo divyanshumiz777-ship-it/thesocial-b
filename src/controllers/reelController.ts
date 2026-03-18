@@ -3,7 +3,6 @@ import { Reel } from "../models/Reel.ts";
 import { UserReelInteraction } from "../models/UserReelInteraction.ts";
 import { Types } from "mongoose";
 
-// Helper function to update reel counts
 const updateReelCount = async (
   reel_id: string,
   event_type: string,
@@ -30,7 +29,6 @@ const updateReelCount = async (
   await reel.save();
 };
 
-// Helper function to update interaction based on event type
 const updateInteractionByEvent = (
   interaction: any,
   event_type: string,
@@ -64,7 +62,6 @@ const updateInteractionByEvent = (
   }
 };
 
-// PHASE 1 & 2: Event Tracking - Track user interaction with reel
 export const trackReelEvent = async (c: Context) => {
   try {
     const { user_id, reel_id, event_type, watch_time } = await c.req.json();
@@ -91,7 +88,6 @@ export const trackReelEvent = async (c: Context) => {
     interaction.last_interaction_at = new Date();
     await interaction.save();
 
-    // Update reel counts for specific events
     if (["like", "view", "share", "comment"].includes(event_type)) {
       await updateReelCount(reel_id, event_type, interaction.liked);
     }
@@ -102,7 +98,6 @@ export const trackReelEvent = async (c: Context) => {
     return c.json({ error: "Failed to track reel event" }, 500);
   }
 };
-// Create a new reel
 export const createReel = async (c: Context) => {
   try {
     const {
@@ -138,7 +133,6 @@ export const createReel = async (c: Context) => {
 
     await reel.save();
 
-    // Populate creator details
     await reel.populate("creator_id", "name profilePic");
 
     return c.json({ message: "Reel created successfully", reel }, 201);
@@ -148,7 +142,6 @@ export const createReel = async (c: Context) => {
   }
 };
 
-// Get single reel by ID
 export const getReelById = async (c: Context) => {
   try {
     const { reelId } = c.req.param();
@@ -169,7 +162,6 @@ export const getReelById = async (c: Context) => {
   }
 };
 
-// Get user's reels
 export const getUserReels = async (c: Context) => {
   try {
     const { userId } = c.req.param();
@@ -210,7 +202,6 @@ export const getUserReels = async (c: Context) => {
   }
 };
 
-// Delete reel
 export const deleteReel = async (c: Context) => {
   try {
     const { reelId } = c.req.param();

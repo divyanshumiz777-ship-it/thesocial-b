@@ -19,7 +19,6 @@ import { authMiddleware } from "../middleware/authMiddleware.ts";
 
 export const authRouter = new Hono();
 
-// Custom error handler for zValidator
 const handleValidationError = (result: any, c: any) => {
   if (!result.success) {
     console.error("Validation Error:", result.error);

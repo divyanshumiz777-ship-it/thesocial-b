@@ -2,10 +2,6 @@ import { Reel } from "../models/Reel.ts";
 import { UserReelInteraction } from "../models/UserReelInteraction.ts";
 import { Types } from "mongoose";
 
-/**
- * PHASE 6: Analytics and Monitoring
- * Track key metrics for feed optimization
- */
 export interface FeedAnalytics {
   avgWatchTime: number;
   sessionLength: number;
@@ -16,9 +12,6 @@ export interface FeedAnalytics {
   retentionDay7: number;
 }
 
-/**
- * Get feed analytics for a specific time period
- */
 export const getFeedAnalytics = async (
   userId: string,
   days: number = 7,
@@ -53,7 +46,6 @@ export const getFeedAnalytics = async (
     const totalLikes = interactions.filter((i: any) => i.liked).length;
     const totalShares = interactions.filter((i: any) => i.shared).length;
 
-    // Calculate retention
     const day1Date = new Date();
     day1Date.setDate(day1Date.getDate() - 1);
     const activeToday = interactions.filter(
@@ -81,9 +73,6 @@ export const getFeedAnalytics = async (
   }
 };
 
-/**
- * Get recommended tags for a user based on their interactions
- */
 export const getRecommendedTags = async (
   userId: string,
   limit: number = 10,
@@ -91,7 +80,6 @@ export const getRecommendedTags = async (
   try {
     const userObjId = Types.ObjectId.createFromHexString(userId);
 
-    // Get user's liked reels
     const likedInteractions = await UserReelInteraction.find({
       user_id: userObjId,
       liked: true,
@@ -99,7 +87,6 @@ export const getRecommendedTags = async (
 
     const reelIds = likedInteractions.map((i: any) => i.reel_id);
 
-    // Get tags from liked reels
     const reels = await Reel.find({ _id: { $in: reelIds } });
 
     const tagFrequency: Record<string, number> = {};
@@ -110,7 +97,6 @@ export const getRecommendedTags = async (
       });
     });
 
-    // Return top tags
     return Object.entries(tagFrequency)
       .sort(([, a], [, b]) => b - a)
       .slice(0, limit)
@@ -121,9 +107,6 @@ export const getRecommendedTags = async (
   }
 };
 
-/**
- * Get reel trending score for the past 24 hours
- */
 export const getTrendingReels24h = async (
   limit: number = 10,
 ): Promise<any[]> => {
@@ -150,9 +133,6 @@ export const getTrendingReels24h = async (
   }
 };
 
-/**
- * Get user's interaction history with stats
- */
 export const getUserInteractionHistory = async (
   userId: string,
   limit: number = 20,
@@ -174,9 +154,6 @@ export const getUserInteractionHistory = async (
   }
 };
 
-/**
- * Search reels by multiple criteria
- */
 export const searchReels = async (
   query: string,
   filters?: {

@@ -4,13 +4,13 @@ export interface IUserReelInteraction extends Document {
   _id: Types.ObjectId;
   user_id: Types.ObjectId;
   reel_id: Types.ObjectId;
-  watch_time: number; // in seconds
+  watch_time: number;
   liked: boolean;
   shared: boolean;
   skipped: boolean;
   commented: boolean;
   follow_creator: boolean;
-  completed: boolean; // watched till end
+  completed: boolean;
   created_at: Date;
   updated_at: Date;
   last_interaction_at: Date;
@@ -73,13 +73,10 @@ const UserReelInteractionSchema = new Schema<IUserReelInteraction>({
   },
 });
 
-// Unique index to prevent duplicate interactions for same user-reel pair
 UserReelInteractionSchema.index({ user_id: 1, reel_id: 1 }, { unique: true });
 
-// Index for querying user interactions
 UserReelInteractionSchema.index({ user_id: 1, created_at: -1 });
 
-// Index for querying reel interactions
 UserReelInteractionSchema.index({ reel_id: 1, created_at: -1 });
 
 export const UserReelInteraction = mongoose.model<IUserReelInteraction>(

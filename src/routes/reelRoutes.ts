@@ -13,22 +13,16 @@ import {
 
 export const reelRouter = new Hono();
 
-// Track reel events (PHASE 1)
 reelRouter.post("/track-event", trackReelEvent);
 
-// Create a new reel
 reelRouter.post("/create", createReel);
 
-// Get single reel
 reelRouter.get("/:reelId", getReelById);
 
-// Get user's reels
 reelRouter.get("/user/:userId", getUserReels);
 
-// Delete reel
 reelRouter.delete("/:reelId", deleteReel);
 
-// Get personalized feed (PHASE 2)
 reelRouter.get("/feed/personalized/:userId", async (c: Context) => {
   try {
     const { userId } = c.req.param();
@@ -50,7 +44,6 @@ reelRouter.get("/feed/personalized/:userId", async (c: Context) => {
   }
 });
 
-// Get cold start feed for new users (PHASE 3)
 reelRouter.post("/feed/cold-start/:userId", async (c: Context) => {
   try {
     const { userId } = c.req.param();
@@ -77,7 +70,6 @@ reelRouter.post("/feed/cold-start/:userId", async (c: Context) => {
   }
 });
 
-// Get trending reels
 reelRouter.get("/explore/trending", async (c: Context) => {
   try {
     const limit = Number.parseInt(c.req.query("limit") ?? "20", 10);
@@ -85,7 +77,6 @@ reelRouter.get("/explore/trending", async (c: Context) => {
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    // Dynamic import of Reel model
     const { Reel } = await import("../models/Reel.ts");
 
     const trendingReels = await Reel.find({
@@ -109,7 +100,6 @@ reelRouter.get("/explore/trending", async (c: Context) => {
   }
 });
 
-// Get reels by tag
 reelRouter.get("/explore/tag/:tag", async (c: Context) => {
   try {
     const { tag } = c.req.param();
@@ -139,7 +129,6 @@ reelRouter.get("/explore/tag/:tag", async (c: Context) => {
   }
 });
 
-// Get all reels for exploration
 reelRouter.get("/explore/all", async (c: Context) => {
   try {
     const page = Number.parseInt(c.req.query("page") ?? "1", 10);
@@ -175,7 +164,6 @@ reelRouter.get("/explore/all", async (c: Context) => {
   }
 });
 
-// PHASE 6: Analytics endpoints
 reelRouter.get("/analytics/:userId", async (c: Context) => {
   try {
     const { userId } = c.req.param();
@@ -191,7 +179,6 @@ reelRouter.get("/analytics/:userId", async (c: Context) => {
   }
 });
 
-// Get user's recommended tags
 reelRouter.get("/tags/recommended/:userId", async (c: Context) => {
   try {
     const { userId } = c.req.param();
@@ -207,7 +194,6 @@ reelRouter.get("/tags/recommended/:userId", async (c: Context) => {
   }
 });
 
-// Get trending reels (last 24 hours)
 reelRouter.get("/trending/24h", async (c: Context) => {
   try {
     const limit = Number.parseInt(c.req.query("limit") ?? "10", 10);
@@ -222,7 +208,6 @@ reelRouter.get("/trending/24h", async (c: Context) => {
   }
 });
 
-// Search reels
 reelRouter.post("/search", async (c: Context) => {
   try {
     const { query, filters, limit } = await c.req.json();

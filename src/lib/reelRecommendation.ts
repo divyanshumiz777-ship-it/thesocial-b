@@ -9,10 +9,6 @@ export interface ReelScoreResult {
   reason: string;
 }
 
-/**
- * PHASE 2: Rule-Based Scoring Formula
- * score = (watch_time * 0.4) + (like * 3) + (share * 5) + (comment * 4) - (skip * 2) + freshness_boost
- */
 export const calculateReelScore = (
   interaction: any,
   reelAgeDays: number,
@@ -24,16 +20,11 @@ export const calculateReelScore = (
     (interaction.commented ? 4 : 0) -
     (interaction.skipped ? 2 : 0);
 
-  // Freshness boost: higher for newer reels
   const freshnessBoost = Math.max(0, 10 - reelAgeDays) * 0.5;
 
   return baseScore + freshnessBoost;
 };
 
-/**
- * Calculate trending score for a reel
- * trending_score = (total_watch_time / age_in_hours) + (shares * 2) + (new_users_liking)
- */
 export const calculateTrendingScore = (
   reel: any,
   ageInHours: number,
@@ -44,10 +35,6 @@ export const calculateTrendingScore = (
   return watchTimeContribution + shareContribution;
 };
 
-/**
- * PHASE 2: Get personalized feed for a user
- * 60% personalized + 30% trending + 10% random exploration
- */
 export const getPersonalizedFeed = async (
   userId: string,
   limit: number = 20,
@@ -55,14 +42,12 @@ export const getPersonalizedFeed = async (
   try {
     const userObjId = Types.ObjectId.createFromHexString(userId);
 
-    // Get user's last 50 interactions
     const userInteractions = await UserReelInteraction.find({
       user_id: userObjId,
     })
       .sort({ created_at: -1 })
       .limit(50);
 
-    // Extract top tags, creators, and audio
     const tagFrequency: Record<string, number> = {};
     const creatorIds = new Set<string>();
     const audioIds = new Set<string>();
@@ -73,7 +58,6 @@ export const getPersonalizedFeed = async (
       }
     });
 
-    // Get liked/commented reels to extract tags
     const likedReels = await Reel.find({
       _id: {
         $in: userInteractions
@@ -94,18 +78,15 @@ export const getPersonalizedFeed = async (
       }
     });
 
-    // Get top tags
     const topTags = Object.entries(tagFrequency)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 5)
       .map(([tag]) => tag);
 
-    // Build personalized feed (60%)
     const personalizedCount = Math.floor((limit * 60) / 100);
     const trendingCount = Math.floor((limit * 30) / 100);
     const randomCount = limit - personalizedCount - trendingCount;
 
-    // Fetch personalized reels
     const personalizedReels = await Reel.find({
       $or: [
         { tags: { $in: topTags } },
@@ -126,7 +107,6 @@ export const getPersonalizedFeed = async (
       .sort({ created_at: -1 })
       .limit(personalizedCount);
 
-    // Fetch trending reels (30%)
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -143,7 +123,6 @@ export const getPersonalizedFeed = async (
       .sort({ viewCount: -1, shareCount: -1 })
       .limit(trendingCount);
 
-    // Fetch random reels (10% exploration)
     const randomReels = await Reel.find({
       isDeleted: false,
       _id: {
@@ -157,7 +136,6 @@ export const getPersonalizedFeed = async (
       .sort({ created_at: -1 })
       .limit(randomCount);
 
-    // Combine and shuffle
     const feedReels = [...personalizedReels, ...trendingReels, ...randomReels];
 
     return feedReels;
@@ -167,9 +145,6 @@ export const getPersonalizedFeed = async (
   }
 };
 
-/**
- * PHASE 3: Handle cold start for new users
- */
 export const getColdStartFeed = async (
   userId: string,
   interests: string[] = [],
@@ -177,7 +152,6 @@ export const getColdStartFeed = async (
   limit: number = 20,
 ): Promise<any[]> => {
   try {
-    // Create preference entry for user
     const userObjId = Types.ObjectId.createFromHexString(userId);
 
     let preference = await UserReelPreference.findOne({ user_id: userObjId });
@@ -191,11 +165,9 @@ export const getColdStartFeed = async (
       await preference.save();
     }
 
-    // Serve 60% interest-based + 40% trending
     const interestCount = Math.floor((limit * 60) / 100);
     const trendingCount = limit - interestCount;
 
-    // Fetch interest-based reels
     const interestReels =
       interests.length > 0
         ? await Reel.find({
@@ -207,7 +179,6 @@ export const getColdStartFeed = async (
             .limit(interestCount)
         : [];
 
-    // Fetch trending reels with freshness boost
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -226,9 +197,6 @@ export const getColdStartFeed = async (
   }
 };
 
-/**
- * Apply freshness boost to new reels (24 hours)
- */
 export const applyFreshnessBoost = (
   reel: any,
   boostFactor: number = 1.5,

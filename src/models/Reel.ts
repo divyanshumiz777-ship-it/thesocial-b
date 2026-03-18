@@ -10,7 +10,7 @@ export interface IReel extends Document {
   language: string;
   audio_id?: string;
   audioName?: string;
-  duration: number; // in seconds
+  duration: number;
   viewCount: number;
   likeCount: number;
   shareCount: number;
@@ -96,7 +96,6 @@ const ReelSchema = new Schema<IReel>({
   },
 });
 
-// Compound index for efficient querying
 ReelSchema.index({ isDeleted: 1, created_at: -1 });
 ReelSchema.index({ creator_id: 1, isDeleted: 1 });
 ReelSchema.index({ tags: 1, language: 1 });
