@@ -105,7 +105,8 @@ export const getPersonalizedFeed = async (
       },
     })
       .sort({ created_at: -1 })
-      .limit(personalizedCount);
+      .limit(personalizedCount)
+      .populate("creator_id", "name profilePic");
 
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -121,7 +122,8 @@ export const getPersonalizedFeed = async (
       },
     })
       .sort({ viewCount: -1, shareCount: -1 })
-      .limit(trendingCount);
+      .limit(trendingCount)
+      .populate("creator_id", "name profilePic");
 
     const randomReels = await Reel.find({
       isDeleted: false,
@@ -134,7 +136,8 @@ export const getPersonalizedFeed = async (
       },
     })
       .sort({ created_at: -1 })
-      .limit(randomCount);
+      .limit(randomCount)
+      .populate("creator_id", "name profilePic");
 
     const feedReels = [...personalizedReels, ...trendingReels, ...randomReels];
 
@@ -177,6 +180,7 @@ export const getColdStartFeed = async (
           })
             .sort({ created_at: -1 })
             .limit(interestCount)
+            .populate("creator_id", "name profilePic")
         : [];
 
     const now = new Date();
@@ -188,7 +192,8 @@ export const getColdStartFeed = async (
       _id: { $nin: interestReels.map((r) => r._id) },
     })
       .sort({ viewCount: -1, likeCount: -1 })
-      .limit(trendingCount);
+      .limit(trendingCount)
+      .populate("creator_id", "name profilePic");
 
     return [...interestReels, ...trendingReels];
   } catch (error) {

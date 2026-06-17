@@ -64,11 +64,12 @@ const updateInteractionByEvent = (
 
 export const trackReelEvent = async (c: Context) => {
   try {
-    const { user_id, reel_id, event_type, watch_time } = await c.req.json();
+    const user_id = c.get("user").id;
+    const { reel_id, event_type, watch_time } = await c.req.json();
 
-    if (!user_id || !reel_id || !event_type) {
+    if (!reel_id || !event_type) {
       return c.json(
-        { error: "Missing required fields: user_id, reel_id, event_type" },
+        { error: "Missing required fields: reel_id, event_type" },
         400,
       );
     }
@@ -100,8 +101,8 @@ export const trackReelEvent = async (c: Context) => {
 };
 export const createReel = async (c: Context) => {
   try {
+    const creator_id = c.get("user").id;
     const {
-      creator_id,
       videoUrl,
       thumbnailUrl,
       caption,
@@ -112,9 +113,9 @@ export const createReel = async (c: Context) => {
       duration,
     } = await c.req.json();
 
-    if (!creator_id || !videoUrl || !duration) {
+    if (!videoUrl || !duration) {
       return c.json(
-        { error: "Missing required fields: creator_id, videoUrl, duration" },
+        { error: "Missing required fields: videoUrl, duration" },
         400,
       );
     }
@@ -205,7 +206,7 @@ export const getUserReels = async (c: Context) => {
 export const deleteReel = async (c: Context) => {
   try {
     const { reelId } = c.req.param();
-    const { userId } = await c.req.json();
+    const userId = c.get("user").id;
 
     const reel = await Reel.findById(reelId);
 

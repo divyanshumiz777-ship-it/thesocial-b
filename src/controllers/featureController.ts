@@ -1,3 +1,18 @@
+/**
+ * featureController.ts — BACKEND FIX
+ *
+ * Critical bug: authMiddleware sets c.set("user", payload) where payload is
+ * the JWT: { id, email, iat, exp }. So user.id is the user's ID and user._id
+ * is UNDEFINED. The original file used user._id throughout, meaning:
+ *   - readBy pushed { user: undefined }
+ *   - alreadyRead check compared undefined.toString() → throws or never matches
+ *   - pinnedBy set to undefined
+ *   - custom status emitted { userId: undefined }
+ *
+ * This file fixes all occurrences. Where name/profilePic are needed for the
+ * socket emit payload, we load them from User.
+ */
+
 import { Context } from "hono";
 import mongoose from "mongoose";
 import Message from "../models/Message.ts";
@@ -15,25 +30,21 @@ export const togglePinMessage = async (c: Context) => {
 
   try {
     const message = await Message.findById(messageId);
-    if (!message) {
-      return c.json({ error: "Message not found" }, 404);
-    }
+    if (!message) return c.json({ error: "Message not found" }, 404);
 
     message.pinned = !message.pinned;
-
     if (message.pinned) {
-      message.pinnedBy = user._id;
+      message.pinnedBy = new mongoose.Types.ObjectId(user.id); // FIXED: user.id
       message.pinnedAt = new Date();
     } else {
       message.pinnedBy = undefined;
       message.pinnedAt = undefined;
     }
-
     await message.save();
 
     if (io) {
       const roomId =
-        message.conversationId?.toString() || message.channel?.toString();
+        message.conversationId?.toString() ?? message.channel?.toString();
       if (roomId) {
         io.to(roomId).emit("message:pinned", {
           messageId: message._id,
@@ -53,7 +64,7 @@ export const togglePinMessage = async (c: Context) => {
         pinnedBy: message.pinnedBy,
         pinnedAt: message.pinnedAt,
       },
-      200
+      200,
     );
   } catch (error) {
     console.error("Error toggling pin message:", error);
@@ -70,7 +81,6 @@ export const getPinnedMessages = async (c: Context) => {
 
   try {
     let query: any = { pinned: true };
-
     if (channelId && mongoose.Types.ObjectId.isValid(channelId)) {
       query.channel = channelId;
     } else if (
@@ -106,34 +116,33 @@ export const markMessageAsRead = async (c: Context) => {
 
   try {
     const message = await Message.findById(messageId);
-    if (!message) {
-      return c.json({ error: "Message not found" }, 404);
-    }
+    if (!message) return c.json({ error: "Message not found" }, 404);
+
+    const userId = user.id; // FIXED: was user._id
 
     const alreadyRead = message.readBy?.some(
-      (r) => r.user.toString() === user._id.toString()
+      (r) => r.user.toString() === userId,
     );
 
     if (!alreadyRead) {
-      if (!message.readBy) {
-        message.readBy = [];
-      }
-
+      if (!message.readBy) message.readBy = [];
       message.readBy.push({
-        user: user._id,
+        user: new mongoose.Types.ObjectId(userId),
         readAt: new Date(),
       });
-
       await message.save();
 
+      // Emit to original message sender so they see the read receipt
       if (io && message.sender) {
+        // Load name/profilePic for the receipt payload (JWT only has id/email)
+        const readerDoc = await User.findById(userId).select("name profilePic");
         io.to(message.sender.toString()).emit("message:read", {
           messageId: message._id,
           readBy: {
             user: {
-              _id: user._id,
-              name: user.name,
-              profilePic: user.profilePic,
+              _id: userId,
+              name: readerDoc?.name ?? user.email,
+              profilePic: readerDoc?.profilePic,
             },
             readAt: new Date(),
           },
@@ -142,11 +151,8 @@ export const markMessageAsRead = async (c: Context) => {
     }
 
     return c.json(
-      {
-        message: "Message marked as read",
-        readBy: message.readBy,
-      },
-      200
+      { message: "Message marked as read", readBy: message.readBy },
+      200,
     );
   } catch (error) {
     console.error("Error marking message as read:", error);
@@ -164,27 +170,27 @@ export const markMessagesAsRead = async (c: Context) => {
   }
 
   try {
+    const userId = user.id; // FIXED: was user._id
     const validIds = messageIds.filter((id) =>
-      mongoose.Types.ObjectId.isValid(id)
+      mongoose.Types.ObjectId.isValid(id),
     );
-
     const messages = await Message.find({ _id: { $in: validIds } });
 
+    // Load reader info once
+    const readerDoc = await User.findById(userId).select("name profilePic");
+    const readAt = new Date();
     const readReceipt = {
-      user: user._id,
-      readAt: new Date(),
+      user: new mongoose.Types.ObjectId(userId),
+      readAt,
     };
 
     for (const message of messages) {
       const alreadyRead = message.readBy?.some(
-        (r) => r.user.toString() === user._id.toString()
+        (r) => r.user.toString() === userId,
       );
-
       if (!alreadyRead) {
-        if (!message.readBy) {
-          message.readBy = [];
-        }
-        message.readBy.push(readReceipt);
+        if (!message.readBy) message.readBy = [];
+        message.readBy.push({ ...readReceipt });
         await message.save();
 
         if (io && message.sender) {
@@ -192,11 +198,11 @@ export const markMessagesAsRead = async (c: Context) => {
             messageId: message._id,
             readBy: {
               user: {
-                _id: user._id,
-                name: user.name,
-                profilePic: user.profilePic,
+                _id: userId,
+                name: readerDoc?.name ?? user.email,
+                profilePic: readerDoc?.profilePic,
               },
-              readAt: readReceipt.readAt,
+              readAt,
             },
           });
         }
@@ -208,7 +214,7 @@ export const markMessagesAsRead = async (c: Context) => {
         message: `${messages.length} messages marked as read`,
         count: messages.length,
       },
-      200
+      200,
     );
   } catch (error) {
     console.error("Error marking messages as read:", error);
@@ -222,10 +228,9 @@ export const updateCustomStatus = async (c: Context) => {
   const io = c.get("io") as Server | undefined;
 
   try {
-    const userDoc = await User.findById(user._id);
-    if (!userDoc) {
-      return c.json({ error: "User not found" }, 404);
-    }
+    const userId = user.id; // FIXED: was user._id
+    const userDoc = await User.findById(userId);
+    if (!userDoc) return c.json({ error: "User not found" }, 404);
 
     let expiresAt: Date | undefined;
     if (expiresIn && expiresIn > 0) {
@@ -237,22 +242,18 @@ export const updateCustomStatus = async (c: Context) => {
       emoji: emoji || undefined,
       expiresAt,
     };
-
     await userDoc.save();
 
     if (io) {
       io.emit("user:status-updated", {
-        userId: user._id,
+        userId, // FIXED: was user._id (undefined)
         customStatus: userDoc.customStatus,
       });
     }
 
     return c.json(
-      {
-        message: "Custom status updated successfully",
-        customStatus: userDoc.customStatus,
-      },
-      200
+      { message: "Custom status updated", customStatus: userDoc.customStatus },
+      200,
     );
   } catch (error) {
     console.error("Error updating custom status:", error);
@@ -265,27 +266,21 @@ export const clearCustomStatus = async (c: Context) => {
   const io = c.get("io") as Server | undefined;
 
   try {
-    const userDoc = await User.findById(user._id);
-    if (!userDoc) {
-      return c.json({ error: "User not found" }, 404);
-    }
+    const userId = user.id; // FIXED: was user._id
+    const userDoc = await User.findById(userId);
+    if (!userDoc) return c.json({ error: "User not found" }, 404);
 
     userDoc.customStatus = undefined;
     await userDoc.save();
 
     if (io) {
       io.emit("user:status-updated", {
-        userId: user._id,
+        userId, // FIXED: was user._id (undefined)
         customStatus: null,
       });
     }
 
-    return c.json(
-      {
-        message: "Custom status cleared successfully",
-      },
-      200
-    );
+    return c.json({ message: "Custom status cleared" }, 200);
   } catch (error) {
     console.error("Error clearing custom status:", error);
     return c.json({ error: "Failed to clear custom status" }, 500);

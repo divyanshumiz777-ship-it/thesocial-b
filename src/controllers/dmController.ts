@@ -6,7 +6,8 @@ import User from "../models/User.ts";
 import { Server } from "socket.io";
 
 export const createDm = async (c: Context) => {
-  const { senderId, receiverId, content, attachments } = await c.req.json();
+  const senderId = c.get("user").id;
+  const { receiverId, content, attachments } = await c.req.json();
   const io = c.get("io") as Server | undefined;
 
   if (
@@ -149,7 +150,8 @@ export const getDm = async (c: Context) => {
 };
 export const editMessage = async (c: Context) => {
   const { conversationId } = c.req.param();
-  const { content, user, messageId } = await c.req.json();
+  const { content, messageId } = await c.req.json();
+  const userId = c.get("user").id;
 
   const io = c.get("io") as Server | undefined;
 
@@ -164,11 +166,6 @@ export const editMessage = async (c: Context) => {
   }
 
   try {
-    const userId = user._id || user.id;
-    if (!userId) {
-      return c.json({ error: "User ID is required" }, 400);
-    }
-
     const updatedMessage = await Message.findOneAndUpdate(
       { _id: messageId, sender: userId },
       { content, edited: true },
@@ -194,11 +191,11 @@ export const editMessage = async (c: Context) => {
 };
 export const deleteMessage = async (c: Context) => {
   const { conversationId } = c.req.param();
-  const { messageId, userId, deleteType } = await c.req.json();
+  const { messageId, deleteType } = await c.req.json();
+  const userId = c.get("user").id;
   if (
     !mongoose.Types.ObjectId.isValid(messageId) ||
-    !mongoose.Types.ObjectId.isValid(conversationId) ||
-    !mongoose.Types.ObjectId.isValid(userId)
+    !mongoose.Types.ObjectId.isValid(conversationId)
   )
     return c.json({ error: "Invalid ID format" }, 400);
   const io = c.get("io") as Server | undefined;
@@ -259,7 +256,7 @@ export const deleteMessage = async (c: Context) => {
 };
 export const deleteDm = async (c: Context) => {
   const { conversationId } = c.req.param();
-  const { user } = await c.req.json();
+  const userId = c.get("user").id;
   const io = c.get("io") as Server | undefined;
   if (!mongoose.Types.ObjectId.isValid(conversationId))
     return c.json({ error: "Invalid ID format" }, 400);
@@ -267,9 +264,9 @@ export const deleteDm = async (c: Context) => {
     const deletedConversation = await Conversation.findOneAndUpdate(
       {
         _id: conversationId,
-        participants: { $in: [user._id] },
+        participants: { $in: [userId] },
       },
-      { $pull: { participants: user._id } },
+      { $pull: { participants: userId } },
       { new: true }
     );
     if (!deletedConversation) {
@@ -635,7 +632,8 @@ export const getBlockedUsers = async (c: Context) => {
 
 export const toggleReaction = async (c: Context) => {
   const { messageId } = c.req.param();
-  const { emoji, user, channelId } = await c.req.json();
+  const { emoji, channelId } = await c.req.json();
+  const userId = c.get("user").id;
   const io = c.get("io") as Server | undefined;
   if (
     !mongoose.Types.ObjectId.isValid(messageId) ||
@@ -645,11 +643,6 @@ export const toggleReaction = async (c: Context) => {
   try {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
-
-    const userId = user._id || user.id;
-    if (!userId) {
-      return c.json({ error: "User ID is required" }, 400);
-    }
 
     const userIdString = userId.toString();
     const userObjectId = new (mongoose.Types.ObjectId as any)(userIdString);

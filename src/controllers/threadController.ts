@@ -27,7 +27,8 @@ const hasPermission = async (
 export const createThread = async (c: Context) => {
   const { channelId } = c.req.param();
   const body = await c.req.json();
-  const { title, serverId, user } = body;
+  const { title, serverId } = body;
+  const user = c.get("user").id;
   const io: Server = c.get("io");
 
   if (
@@ -56,7 +57,7 @@ export const createThread = async (c: Context) => {
       title,
       channel: channelId,
       server: serverId,
-      creator: user._id,
+      creator: user,
     });
     await Channel.findByIdAndUpdate(channelId, {
       $push: { threads: thread._id },
@@ -71,7 +72,8 @@ export const createThread = async (c: Context) => {
 
 export const getThreads = async (c: Context) => {
   const { channelId } = c.req.param();
-  const { serverId, user } = await c.req.json();
+  const { serverId } = await c.req.json();
+  const user = c.get("user").id;
   const page = parseInt(c.req.query("page") || "1");
   const limit = parseInt(c.req.query("limit") || "25");
   const skip = (page - 1) * limit;
@@ -107,7 +109,8 @@ export const getThreads = async (c: Context) => {
 export const updateThread = async (c: Context) => {
   const { threadId } = c.req.param();
   const body = await c.req.json();
-  const { title, user, serverId } = body;
+  const { title, serverId } = body;
+  const user = c.get("user").id;
   const io: Server = c.get("io");
 
   if (
@@ -161,7 +164,8 @@ export const updateThread = async (c: Context) => {
 
 export const deleteThread = async (c: Context) => {
   const { threadId } = c.req.param();
-  const { user, serverId } = await c.req.json();
+  const { serverId } = await c.req.json();
+  const user = c.get("user").id;
   const io: Server = c.get("io");
 
   if (
@@ -212,11 +216,11 @@ export const deleteThread = async (c: Context) => {
 
 export const createMessage = async (c: Context) => {
   const { threadId } = c.req.param();
-  const { content, senderId, channelId, serverId } = await c.req.json();
+  const { content, channelId, serverId } = await c.req.json();
+  const senderId = c.get("user").id;
   const io: Server = c.get("io");
   if (
     !mongoose.Types.ObjectId.isValid(threadId) ||
-    !mongoose.Types.ObjectId.isValid(senderId) ||
     !mongoose.Types.ObjectId.isValid(channelId)
   )
     return c.json({ error: "Invalid ID format" }, 400);
@@ -256,7 +260,8 @@ export const createMessage = async (c: Context) => {
 
 export const getMessages = async (c: Context) => {
   const { threadId } = c.req.param();
-  const { serverId, user, channelId } = await c.req.json();
+  const { serverId, channelId } = await c.req.json();
+  const user = c.get("user").id;
   const page = parseInt(c.req.query("page") || "1");
   const limit = parseInt(c.req.query("limit") || "25");
   const skip = (page - 1) * limit;
@@ -301,7 +306,8 @@ export const getMessages = async (c: Context) => {
 
 export const deleteMessage = async (c: Context) => {
   const { messageId } = c.req.param();
-  const { user, serverId, threadId } = await c.req.json();
+  const { serverId, threadId } = await c.req.json();
+  const user = c.get("user").id;
   const io: Server = c.get("io");
   if (!mongoose.Types.ObjectId.isValid(messageId))
     return c.json({ error: "Invalid message ID format" }, 400);
@@ -342,7 +348,8 @@ export const deleteMessage = async (c: Context) => {
 
 export const updateMessage = async (c: Context) => {
   const { messageId } = c.req.param();
-  const { content, user, serverId } = await c.req.json();
+  const { content, serverId } = await c.req.json();
+  const user = c.get("user").id;
   const io: Server = c.get("io");
   if (
     !mongoose.Types.ObjectId.isValid(messageId) ||
@@ -389,7 +396,8 @@ export const updateMessage = async (c: Context) => {
 
 export const toggleReaction = async (c: Context) => {
   const { messageId } = c.req.param();
-  const { emoji, user, conversationId, serverId } = await c.req.json();
+  const { emoji, conversationId, serverId } = await c.req.json();
+  const userId = c.get("user").id;
   if (
     !mongoose.Types.ObjectId.isValid(messageId) ||
     !mongoose.Types.ObjectId.isValid(conversationId)
@@ -400,7 +408,7 @@ export const toggleReaction = async (c: Context) => {
     const isMember = await DiscordServer.findOne({
       _id: serverId,
       members: {
-        $elemMatch: { user: user, roles: "add reactions" },
+        $elemMatch: { user: userId, roles: "add reactions" },
       },
     });
     if (!isMember) {
@@ -412,7 +420,7 @@ export const toggleReaction = async (c: Context) => {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
 
-    const userIdString = user._id.toString();
+    const userIdString = userId;
 
     const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
     const hasThisReaction =
@@ -445,10 +453,11 @@ export const toggleReaction = async (c: Context) => {
       const newReactionIndex = message.reactions.findIndex(
         (r) => r.emoji === emoji
       );
+      const userObjectId = new Types.ObjectId(userId);
       if (newReactionIndex > -1) {
-        message.reactions[newReactionIndex].users.push(user._id);
+        message.reactions[newReactionIndex].users.push(userObjectId);
       } else {
-        message.reactions.push({ emoji, users: [user._id] });
+        message.reactions.push({ emoji, users: [userObjectId] });
       }
     }
 

@@ -19,15 +19,19 @@ import { authMiddleware } from "../middleware/authMiddleware.ts";
 export const messageRouter = new Hono();
 
 messageRouter.get("/search/:channelId", searchMessages);
-messageRouter.get("/get-messages/:channelId", getMessagesByChannelId);
+messageRouter.get(
+  "/get-messages/:channelId",
+  authMiddleware,
+  getMessagesByChannelId,
+);
 messageRouter.post("/create-message/:channelId", authMiddleware, createMessage);
-messageRouter.delete("/delete-message/:messageId", deleteMessage);
+messageRouter.delete("/delete-message/:messageId", authMiddleware, deleteMessage);
 messageRouter.put("/update-message/:messageId", authMiddleware, updateMessage);
 messageRouter.put("/add-reaction/:messageId", authMiddleware, toggleReaction);
 messageRouter.put(
   "/last-read/:channelId",
   authMiddleware,
-  updateLastReadMessage
+  updateLastReadMessage,
 );
 messageRouter.get("/last-read/:channelId", authMiddleware, getLastReadMessage);
 

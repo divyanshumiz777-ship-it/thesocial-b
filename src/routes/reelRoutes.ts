@@ -10,8 +10,11 @@ import {
   getPersonalizedFeed,
   getColdStartFeed,
 } from "../lib/reelRecommendation.ts";
+import { authMiddleware } from "../middleware/authMiddleware.ts";
 
 export const reelRouter = new Hono();
+
+reelRouter.use(authMiddleware);
 
 reelRouter.post("/track-event", trackReelEvent);
 

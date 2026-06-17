@@ -954,6 +954,57 @@ const toggleGroupReaction = async (c: Context) => {
   }
 };
 
+export const getGroupMessages = async (c: Context) => {
+  try {
+    const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) return c.json({ error: "Unauthorized" }, 401);
+
+    const decoded = await verifyJWT(token);
+    if (!decoded) return c.json({ error: "Invalid token" }, 401);
+
+    const { groupId } = c.req.param();
+    const page = Math.max(1, parseInt(c.req.query("page") || "1"));
+    const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "50")));
+    const skip = (page - 1) * limit;
+
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return c.json({ error: "Invalid group ID" }, 400);
+    }
+
+    const userId = getUserIdFromJWT(decoded);
+    if (!userId) return c.json({ error: "Invalid token payload" }, 401);
+
+    const group = await Group.findById(groupId).select("participants owner messages");
+    if (!group) return c.json({ error: "Group not found" }, 404);
+
+    const isParticipant = group.participants.some(
+      (p: any) => p.toString() === userId
+    );
+    if (!isParticipant && group.owner?.toString() !== userId) {
+      return c.json({ error: "Not a member of this group" }, 403);
+    }
+
+    const total = group.messages.length;
+    const startIdx = Math.max(0, total - skip - limit);
+    const endIdx = Math.max(0, total - skip);
+    const messageIds = group.messages.slice(startIdx, endIdx);
+
+    if (messageIds.length === 0) {
+      return c.json([]);
+    }
+
+    const messages = await Message.find({ _id: { $in: messageIds } })
+      .populate("sender", "name email profilePic username")
+      .sort({ createdAt: 1 })
+      .lean();
+
+    return c.json(messages);
+  } catch (error) {
+    console.error("Error fetching group messages:", error);
+    return c.json({ error: "Failed to fetch messages" }, 500);
+  }
+};
+
 groupDmController.get("/my-groups", getUserGroups);
 groupDmController.get("/:groupId", getGroup);
 groupDmController.post("/create", createGroup);
@@ -965,6 +1016,7 @@ groupDmController.post("/:groupId/leave", leaveGroup);
 groupDmController.put("/:groupId/update", updateGroup);
 groupDmController.delete("/:groupId/delete", deleteGroup);
 groupDmController.get("/:groupId/members", getGroupMembers);
+groupDmController.get("/:groupId/messages", getGroupMessages);
 groupDmController.post("/:groupId/messages", sendMessage);
 groupDmController.put("/:groupId/messages/:messageId", editGroupMessage);
 groupDmController.delete("/:groupId/messages/:messageId", deleteGroupMessage);

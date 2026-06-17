@@ -11,8 +11,11 @@ import {
   deleteMessage,
   updateMessage,
 } from "../controllers/threadController.ts";
+import { authMiddleware } from "../middleware/authMiddleware.ts";
 
 export const threadRouter = new Hono();
+
+threadRouter.use(authMiddleware);
 
 threadRouter.post("/create-thread/:channelId", createThread);
 threadRouter.get("/:channelId", getThreads);
