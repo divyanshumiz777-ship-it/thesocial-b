@@ -14,4 +14,6 @@ const BotSchema = new Schema<IBot>({
   createdAt: { type: Date, default: Date.now },
 });
 
+BotSchema.index({ owner: 1 });
+
 export default mongoose.model<IBot>("Bot", BotSchema);

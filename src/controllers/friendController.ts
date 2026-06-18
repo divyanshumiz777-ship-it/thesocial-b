@@ -337,7 +337,7 @@ export const removeFriend = async (c: Context) => {
     const userId = user.id;
     const friendId = c.req.param("friendId");
 
-    if (!mongoose.Types.ObjectId.isValid(friendId)) {
+    if (!friendId || !mongoose.Types.ObjectId.isValid(friendId)) {
       return c.json({ error: "Invalid friend ID" }, 400);
     }
 
@@ -374,7 +374,7 @@ export const getUserProfile = async (c: Context) => {
     const user = c.get("user");
     const currentUserId = user.id;
 
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return c.json({ error: "Invalid user ID" }, 400);
     }
 

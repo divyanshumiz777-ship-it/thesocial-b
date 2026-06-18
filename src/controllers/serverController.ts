@@ -19,6 +19,8 @@ import {
   sendNotificationViaSocket,
 } from "./notificationController.ts";
 import AuditLog from "../models/AuditLog.ts";
+import { invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
+import ServerMember from "../models/ServerMember.ts";
 
 export const searchServers = async (c: Context) => {
   const query = c.req.query("q") || "";
@@ -64,14 +66,10 @@ export const kickUser = async (c: Context) => {
   if (!server) return c.json({ error: "Server not found" }, 404);
   const isMod =
     server.owner.toString() === modUser.id ||
-    server.members.some(
-      (m: any) => m.user.toString() === modUser.id && m.roles.includes("mod")
-    );
+    !!(await ServerMember.exists({ server: serverId, user: modUser.id, roles: "mod" }));
   if (!isMod) return c.json({ error: "Permission denied" }, 403);
-  server.members = server.members.filter(
-    (m: any) => m.user.toString() !== userId
-  );
-  await server.save();
+  await DiscordServer.findByIdAndUpdate(serverId, { $pull: { members: { user: userId } } });
+  await ServerMember.deleteOne({ server: serverId, user: userId });
   await AuditLog.create({
     server: server._id,
     action: "kick",
@@ -130,6 +128,11 @@ export const createServer = async (
       members: [{ user: user.id, roles: ["owner"] }],
     });
     await newServer.save({ session });
+    await ServerMember.findOneAndUpdate(
+      { server: newServer._id, user: user.id },
+      { $set: { roles: ["owner"] } },
+      { upsert: true, session }
+    );
 
     const [notesCategory, socialCategory, doubtsCategory] =
       await Category.create(
@@ -234,29 +237,24 @@ export const getServerById = async (c: Context) => {
       return c.json({ error: "Invalid server id" }, 400);
     }
 
-    const server = await DiscordServer.findById(serverId)
-      .populate({
-        path: "owner",
-        select: "name profilePic",
-      })
-      .populate({
-        path: "members.user",
-        select: "name profilePic",
-      })
-      .populate({
-        path: "categories",
-        populate: {
-          path: "channels",
-          model: "Channel",
-        },
-      })
-      .lean();
+    const [server, serverMembers] = await Promise.all([
+      DiscordServer.findById(serverId)
+        .populate({ path: "owner", select: "name profilePic" })
+        .populate({
+          path: "categories",
+          populate: { path: "channels", model: "Channel" },
+        })
+        .lean(),
+      ServerMember.find({ server: serverId })
+        .populate("user", "name profilePic")
+        .lean(),
+    ]);
 
     if (!server) {
       return c.json({ message: "Server not found" }, 404);
     }
 
-    return c.json({ server }, 200);
+    return c.json({ server: { ...server, members: serverMembers } }, 200);
   } catch (error) {
     console.error("Error fetching server details:", error);
     return c.json({ error: "Internal server error" }, 500);
@@ -272,13 +270,11 @@ export const editServer = async (
   const permServer = await DiscordServer.findById(serverId).lean();
   if (!permServer) return c.json({ error: "Server not found" }, 404);
   const isOwner = permServer.owner?.toString() === user.id;
-  const hasRole = permServer.members?.some(
-    (m: any) =>
-      m.user?.toString() === user.id &&
-      (m.roles?.includes("owner") ||
-        m.roles?.includes("admin") ||
-        m.roles?.includes("edit server"))
-  );
+  const hasRole = !!(await ServerMember.exists({
+    server: serverId,
+    user: user.id,
+    roles: { $in: ["owner", "admin", "edit server"] },
+  }));
   if (!isOwner && !hasRole) {
     return c.json({ error: "Permission denied" }, 403);
   }
@@ -342,6 +338,7 @@ export const editServer = async (
       });
     }
 
+    await invalidateAfterServerUpdate(serverId);
     return c.json(
       { message: "Server updated successfully", server: updatedServer },
       200
@@ -473,12 +470,12 @@ export const getServerInvites = async (
       return c.json({ error: "Server not found" }, 404);
     }
 
-    const isMember = server.members.some(
-      (member: any) => member.user.toString() === user.id
-    );
     const isOwner = server.owner.toString() === user.id;
+    const isMember =
+      !isOwner &&
+      !!(await ServerMember.exists({ server: serverId, user: user.id }));
 
-    if (!isMember && !isOwner) {
+    if (!isOwner && !isMember) {
       return c.json({ error: "Permission denied" }, 403);
     }
 
@@ -520,11 +517,14 @@ export const deleteInvite = async (
 
     const isCreator = invite.createdBy.toString() === user.id;
     const isOwner = server.owner.toString() === user.id;
-    const isAdmin = server.members.some(
-      (member: any) =>
-        member.user.toString() === user.id &&
-        (member.roles.includes("admin") || member.roles.includes("owner"))
-    );
+    const isAdmin =
+      !isCreator &&
+      !isOwner &&
+      !!(await ServerMember.exists({
+        server: invite.server,
+        user: user.id,
+        roles: { $in: ["admin", "owner"] },
+      }));
 
     if (!isCreator && !isOwner && !isAdmin) {
       return c.json({ error: "Permission denied" }, 403);
@@ -553,14 +553,12 @@ export const acceptInvite = async (
     }
 
     const serverId = invite.server;
-    const isAlreadyMember = await DiscordServer.findOne({
-      _id: serverId,
-      "members.user": user.id,
-    });
-    if (isAlreadyMember) {
+    const alreadyMember = await ServerMember.exists({ server: serverId, user: user.id });
+    if (alreadyMember) {
+      const existingServer = await DiscordServer.findById(serverId);
       return c.json({
         message: "You are already a member of this server",
-        server: isAlreadyMember,
+        server: existingServer,
       });
     }
 
@@ -568,6 +566,11 @@ export const acceptInvite = async (
       serverId,
       { $addToSet: { members: { user: user.id, roles: ["member"] } } },
       { new: true }
+    );
+    await ServerMember.findOneAndUpdate(
+      { server: serverId, user: user.id },
+      { $set: { roles: ["member"] } },
+      { upsert: true }
     );
     await User.findByIdAndUpdate(user.id, { $addToSet: { servers: serverId } });
 
@@ -639,14 +642,24 @@ export const getUnreadCounts = async (c: Context) => {
 
     const counts: Record<string, number> = {};
     for (const chId of channelIds) {
-      const key = String(chId);
-      const lastReadAt = statusByChannel.get(key)?.lastReadAt;
-      if (!lastReadAt) {
-        counts[key] = 0;
-        continue;
+      counts[String(chId)] = 0;
+    }
+
+    const perChannelFilters = channelIds
+      .map((id: any) => {
+        const lastReadAt = statusByChannel.get(String(id))?.lastReadAt;
+        return lastReadAt ? { channel: id, createdAt: { $gt: lastReadAt } } : null;
+      })
+      .filter((f): f is NonNullable<typeof f> => f !== null);
+
+    if (perChannelFilters.length > 0) {
+      const rows = await Message.aggregate([
+        { $match: { $or: perChannelFilters } },
+        { $group: { _id: "$channel", count: { $sum: 1 } } },
+      ]);
+      for (const row of rows) {
+        counts[String(row._id)] = row.count;
       }
-      const filter: any = { channel: chId, createdAt: { $gt: lastReadAt } };
-      counts[key] = await Message.countDocuments(filter);
     }
 
     return c.json({ counts }, 200);
@@ -682,6 +695,10 @@ export const editMemberRole = async (c: Context) => {
       {
         arrayFilters: [{ "elem.user": { $in: users } }],
       }
+    );
+    await ServerMember.updateMany(
+      { server: serverId, user: { $in: users } },
+      { $set: { roles } }
     );
 
     if (result.modifiedCount === 0) {
@@ -731,14 +748,15 @@ export const addMember = async (c: Context) => {
     if (!newMemberUser) {
       return c.json({ error: "User to be added does not exist." }, 404);
     }
-    const server = await DiscordServer.findOne({
-      _id: serverId,
-      "members.user": { $ne: newMemberId },
-      members: {
-        $elemMatch: { user: userId, roles: "add member" },
-      },
-    });
+    const [hasPermission, alreadyMember, server] = await Promise.all([
+      ServerMember.exists({ server: serverId, user: userId, roles: "add member" }),
+      ServerMember.exists({ server: serverId, user: newMemberId }),
+      DiscordServer.findById(serverId),
+    ]);
     if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+    if (!hasPermission || alreadyMember) {
       return c.json(
         {
           error:
@@ -751,11 +769,17 @@ export const addMember = async (c: Context) => {
     await DiscordServer.findByIdAndUpdate(serverId, {
       $push: { members: { user: newMemberId, roles: role } },
     });
+    await ServerMember.findOneAndUpdate(
+      { server: serverId, user: newMemberId },
+      { $set: { roles: Array.isArray(role) ? role : role ? [role] : ["member"] } },
+      { upsert: true }
+    );
 
     await User.findByIdAndUpdate(newMemberId, {
       $addToSet: { servers: serverId },
     });
 
+    await invalidateAfterServerUpdate(serverId);
     return c.json({ message: "Member added successfully", server }, 200);
   } catch (error) {
     console.error("Error adding member:", error);
@@ -775,20 +799,12 @@ export const removeMember = async (c: Context) => {
   }
 
   try {
-    const updatedServer = await DiscordServer.findOneAndUpdate(
-      {
-        _id: serverId,
-        members: {
-          $elemMatch: { user: userId, roles: "remove member" },
-        },
-      },
-      {
-        $pull: { members: { user: memberToRemoveId } },
-      },
-      { new: true }
-    );
-
-    if (!updatedServer) {
+    const hasPermission = await ServerMember.exists({
+      server: serverId,
+      user: userId,
+      roles: "remove member",
+    });
+    if (!hasPermission) {
       return c.json(
         {
           error:
@@ -798,10 +814,22 @@ export const removeMember = async (c: Context) => {
       );
     }
 
+    const updatedServer = await DiscordServer.findOneAndUpdate(
+      { _id: serverId },
+      { $pull: { members: { user: memberToRemoveId } } },
+      { new: true }
+    );
+    if (!updatedServer) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    await ServerMember.deleteOne({ server: serverId, user: memberToRemoveId });
+
     await User.findByIdAndUpdate(memberToRemoveId, {
       $pull: { servers: serverId },
     });
 
+    await invalidateAfterServerUpdate(serverId);
     return c.json(
       { message: "Member removed successfully", server: updatedServer },
       200
@@ -825,27 +853,17 @@ export const banMember = async (c: Context) => {
   }
   if (!reason) return c.json({ error: "Reason is required" }, 400);
   try {
-    const hasPermission = await DiscordServer.findOne({
-      _id: serverId,
-      members: {
-        $elemMatch: { user: userId, roles: { $in: ["ban member"] } },
-      },
-    });
+    const [hasPermission, userToBanExists, userAlreadyBanned] = await Promise.all([
+      ServerMember.exists({ server: serverId, user: userId, roles: "ban member" }),
+      User.findById(userToBanId).lean(),
+      ServerMember.exists({ server: serverId, user: userToBanId, "banned.isBanned": true }),
+    ]);
     if (!hasPermission)
       return c.json(
         { error: "You do not have permission to ban members." },
         403
       );
-
-    const userToBanExists = await User.findById(userToBanId);
     if (!userToBanExists) return c.json({ error: "User does not exist" }, 404);
-
-    const userAlreadyBanned = await DiscordServer.findOne({
-      _id: serverId,
-      members: {
-        $elemMatch: { user: userToBanId, "banned.isBanned": true },
-      },
-    });
     if (userAlreadyBanned)
       return c.json({ error: "User is already banned" }, 400);
 
@@ -867,6 +885,11 @@ export const banMember = async (c: Context) => {
     );
     if (!updatedServer) return c.json({ error: "Server not found" }, 404);
 
+    await ServerMember.updateOne(
+      { server: serverId, user: userToBanId },
+      { $set: { banned: { isBanned: true, reason, bannedBy: userId } } }
+    );
+
     await User.findOneAndUpdate(
       {
         _id: userToBanId,
@@ -878,6 +901,7 @@ export const banMember = async (c: Context) => {
       }
     );
     io.to(serverId.toString()).emit("memberBanned", { userToBanId, serverId });
+    await invalidateAfterServerUpdate(serverId);
     return c.json({ message: "Member banned successfully" }, 200);
   } catch (error) {
     console.error("Error banning member:", error);
@@ -896,24 +920,17 @@ export const unBanMember = async (c: Context) => {
     return c.json({ error: "Invalid ID format" }, 400);
 
   try {
-    const hasPermission = await DiscordServer.findOne({
-      _id: serverId,
-      members: { $elemMatch: { user: userId, roles: "unban member" } },
-    });
+    const [hasPermission, userExists, userBanned] = await Promise.all([
+      ServerMember.exists({ server: serverId, user: userId, roles: "unban member" }),
+      User.findById(userToUnbanId).lean(),
+      ServerMember.exists({ server: serverId, user: userToUnbanId, "banned.isBanned": true }),
+    ]);
     if (!hasPermission)
       return c.json(
         { error: "You do not have permission to unban members." },
         403
       );
-    const userExists = await User.findById(userToUnbanId);
     if (!userExists) return c.json({ error: "User does not exist" }, 404);
-    const userBanned = await DiscordServer.findOne({
-      _id: serverId,
-      members: {
-        $elemMatch: { user: userToUnbanId, "banned.isBanned": true },
-      },
-    });
-
     if (!userBanned) return c.json({ error: "User is not banned" }, 400);
     await DiscordServer.findOneAndUpdate(
       {
@@ -921,6 +938,10 @@ export const unBanMember = async (c: Context) => {
         "members.user": userToUnbanId,
       },
       { $unset: { "members.$.banned": "" } }
+    );
+    await ServerMember.updateOne(
+      { server: serverId, user: userToUnbanId },
+      { $unset: { banned: "" } }
     );
     return c.json({ message: "User unbanned successfully" }, 200);
   } catch (error) {
@@ -945,30 +966,20 @@ export const muteMember = async (c: Context) => {
     return c.json({ error: "Duration (in ms) is required" }, 400);
 
   try {
-    const hasPermission = await DiscordServer.findOne({
-      _id: serverId,
-      members: { $elemMatch: { user: userId, roles: "mute member" } },
-    });
+    const [hasPermission, memberToMute, userAlreadyMuted] = await Promise.all([
+      ServerMember.exists({ server: serverId, user: userId, roles: "mute member" }),
+      ServerMember.exists({ server: serverId, user: userToMuteId }),
+      ServerMember.exists({ server: serverId, user: userToMuteId, "muted.isMuted": true }),
+    ]);
     if (!hasPermission) {
       return c.json(
         { error: "You do not have permission to mute members." },
         403
       );
     }
-
-    const memberToMute = await DiscordServer.findOne({
-      _id: serverId,
-      "members.user": userToMuteId,
-    });
     if (!memberToMute) {
       return c.json({ error: "User is not a member of this server." }, 404);
     }
-
-    const userAlreadyMuted = await DiscordServer.findOne({
-      _id: serverId,
-      "members.user": userToMuteId,
-      "members.muted.isMuted": true,
-    });
     if (userAlreadyMuted) {
       return c.json({ error: "User is already muted." }, 400);
     }
@@ -987,6 +998,10 @@ export const muteMember = async (c: Context) => {
         },
       },
       { new: true }
+    );
+    await ServerMember.updateOne(
+      { server: serverId, user: userToMuteId },
+      { $set: { muted: { isMuted: true, reason, mutedBy: userId, expiresAt } } }
     );
 
     io.to(serverId.toString()).emit("memberMuted", {
@@ -1011,27 +1026,34 @@ export const unmuteMember = async (c: Context) => {
     return c.json({ error: "Invalid ID format" }, 400);
 
   try {
-    const updatedServer = await DiscordServer.findOneAndUpdate(
-      {
-        _id: serverId,
-        members: { $elemMatch: { user: userId, roles: "unmute member" } },
-      },
-      {
-        $unset: {
-          "members.[elem].muted": "",
-        },
-      },
-      {
-        arrayFilters: [{ "elem.user": userToUnmuteId }],
-        new: true,
-      }
-    );
-    if (!updatedServer)
+    const hasPermission = await ServerMember.exists({
+      server: serverId,
+      user: userId,
+      roles: "unmute member",
+    });
+    if (!hasPermission)
       return c.json(
         { error: "Action failed. Check if the user exists and is muted." },
         403
       );
 
+    const updatedServer = await DiscordServer.findOneAndUpdate(
+      { _id: serverId, "members.user": userToUnmuteId },
+      {
+        $unset: { "members.$[elem].muted": "" },
+      },
+      {
+        arrayFilters: [{ "elem.user": new mongoose.Types.ObjectId(userToUnmuteId) }],
+        new: true,
+      }
+    );
+    if (!updatedServer)
+      return c.json({ error: "Server not found" }, 404);
+
+    await ServerMember.updateOne(
+      { server: serverId, user: userToUnmuteId },
+      { $unset: { muted: "" } }
+    );
     return c.json({ message: "Member unmuted successfully" }, 200);
   } catch (error) {
     console.error("Error unmuting member:", error);
@@ -1065,9 +1087,7 @@ export const requestJoinServer = async (
       );
     }
 
-    const isMember = server.members.some(
-      (member: any) => member.user.toString() === user.id
-    );
+    const isMember = await ServerMember.exists({ server: serverId, user: user.id });
     if (isMember) {
       return c.json({ error: "You are already a member of this server" }, 400);
     }
@@ -1153,11 +1173,13 @@ export const getJoinRequests = async (
     }
 
     const isOwner = server.owner.toString() === user.id;
-    const isAdmin = server.members.some(
-      (member: any) =>
-        member.user.toString() === user.id &&
-        (member.roles.includes("admin") || member.roles.includes("owner"))
-    );
+    const isAdmin =
+      !isOwner &&
+      !!(await ServerMember.exists({
+        server: serverId,
+        user: user.id,
+        roles: { $in: ["admin", "owner"] },
+      }));
 
     if (!isOwner && !isAdmin) {
       return c.json({ error: "Permission denied" }, 403);
@@ -1194,11 +1216,13 @@ export const approveJoinRequest = async (
     }
 
     const isOwner = server.owner.toString() === user.id;
-    const isAdmin = server.members.some(
-      (member: any) =>
-        member.user.toString() === user.id &&
-        (member.roles.includes("admin") || member.roles.includes("owner"))
-    );
+    const isAdmin =
+      !isOwner &&
+      !!(await ServerMember.exists({
+        server: serverId,
+        user: user.id,
+        roles: { $in: ["admin", "owner"] },
+      }));
 
     if (!isOwner && !isAdmin) {
       return c.json({ error: "Permission denied" }, 403);
@@ -1214,6 +1238,11 @@ export const approveJoinRequest = async (
         $pull: { joinRequests: { user: requestUserId } },
         $push: { members: { user: requestUserId, roles: ["member"] } },
       }
+    );
+    await ServerMember.findOneAndUpdate(
+      { server: serverId, user: requestUserId },
+      { $set: { roles: ["member"] } },
+      { upsert: true }
     );
 
     await User.findByIdAndUpdate(requestUserId, {
@@ -1314,11 +1343,13 @@ export const rejectJoinRequest = async (
     }
 
     const isOwner = server.owner.toString() === user.id;
-    const isAdmin = server.members.some(
-      (member: any) =>
-        member.user.toString() === user.id &&
-        (member.roles.includes("admin") || member.roles.includes("owner"))
-    );
+    const isAdmin =
+      !isOwner &&
+      !!(await ServerMember.exists({
+        server: serverId,
+        user: user.id,
+        roles: { $in: ["admin", "owner"] },
+      }));
 
     if (!isOwner && !isAdmin) {
       return c.json({ error: "Permission denied" }, 403);

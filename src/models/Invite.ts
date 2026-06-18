@@ -14,5 +14,8 @@ const InviteSchema = new Schema<IInvite>({
   expiresAt: { type: Date, required: true },
 });
 
+InviteSchema.index({ server: 1 });
+InviteSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
 const Invite = mongoose.model<IInvite>("Invite", InviteSchema);
 export default Invite;

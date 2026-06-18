@@ -4,6 +4,7 @@ import Channel from "../models/Channel.ts";
 import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.ts";
 import { Server } from "socket.io";
+import ServerMember from "../models/ServerMember.ts";
 
 export const createChannel = async (c: Context) => {
   const { serverId } = c.req.param();
@@ -50,11 +51,11 @@ export const updateChannel = async (c: Context) => {
     if (!server) return c.json({ error: "Server not found" }, 404);
     const isAllowed =
       server.owner.toString() === user?.id ||
-      server.members?.some(
-        (m: any) =>
-          m.user.toString() === user?.id &&
-          (m.roles.includes("admin") || m.roles.includes("mod"))
-      );
+      !!(await ServerMember.exists({
+        server: channel.server,
+        user: user?.id,
+        roles: { $in: ["admin", "mod"] },
+      }));
     if (!isAllowed) return c.json({ error: "Permission denied" }, 403);
 
     const updatedChannel = await Channel.findByIdAndUpdate(
@@ -125,9 +126,11 @@ export const deleteChannel = async (c: Context) => {
     if (!server) return c.json({ error: "Server not found" }, 404);
     const isAllowed =
       server.owner.toString() === user?.id ||
-      server.members?.some(
-        (m: any) => m.user.toString() === user?.id && m.roles.includes("admin")
-      );
+      !!(await ServerMember.exists({
+        server: channel.server,
+        user: user?.id,
+        roles: "admin",
+      }));
     if (!isAllowed) return c.json({ error: "Permission denied" }, 403);
 
     const deletedChannel = await Channel.findByIdAndDelete(channelId);

@@ -15,5 +15,7 @@ const CategorySchema = new Schema<ICategory>({
   createdAt: { type: Date, default: Date.now },
 });
 
+CategorySchema.index({ server: 1 });
+
 const Category = mongoose.model<ICategory>("Category", CategorySchema);
 export default Category;

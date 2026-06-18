@@ -25,6 +25,9 @@ const ConversationSchema = new Schema(
   }
 );
 
+ConversationSchema.index({ participants: 1 });
+ConversationSchema.index({ participants: 1, updatedAt: -1 });
+
 const Conversation = mongoose.model("Conversation", ConversationSchema);
 
 export default Conversation;

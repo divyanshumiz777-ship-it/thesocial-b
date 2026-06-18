@@ -5,6 +5,11 @@ import {
   getReelById,
   getUserReels,
   deleteReel,
+  getComments,
+  addComment,
+  deleteComment,
+  toggleCommentLike,
+  getUserInteractions,
 } from "../controllers/reelController.ts";
 import {
   getPersonalizedFeed,
@@ -20,10 +25,20 @@ reelRouter.post("/track-event", trackReelEvent);
 
 reelRouter.post("/create", createReel);
 
-reelRouter.get("/:reelId", getReelById);
+// Comment routes — registered before /:reelId to prevent wild-card capture
+reelRouter.get("/comments/:commentId/like", toggleCommentLike);
+reelRouter.post("/comments/:commentId/like", toggleCommentLike);
+reelRouter.delete("/comments/:commentId", deleteComment);
 
 reelRouter.get("/user/:userId", getUserReels);
 
+// User interaction state (liked reels) for a batch of reel IDs
+reelRouter.post("/interactions/batch", getUserInteractions);
+
+reelRouter.get("/:reelId/comments", getComments);
+reelRouter.post("/:reelId/comments", addComment);
+
+reelRouter.get("/:reelId", getReelById);
 reelRouter.delete("/:reelId", deleteReel);
 
 reelRouter.get("/feed/personalized/:userId", async (c: Context) => {

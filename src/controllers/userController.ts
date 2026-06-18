@@ -80,6 +80,7 @@ export const updateUserSettings = async (c: Context) => {
     if (!user) {
       return c.json({ error: "User not found" }, 404);
     }
+    await invalidateAfterUserUpdate(id);
     return c.json({ settings: user.settings }, 200);
   } catch (error) {
     console.error("Error updating user settings:", error);
@@ -96,6 +97,8 @@ import {
   sendNotificationViaSocket,
 } from "./notificationController.ts";
 import { getIoInstance } from "../config/socket.ts";
+import { invalidateAfterUserUpdate } from "../lib/cacheInvalidation.ts";
+import ServerMember from "../models/ServerMember.ts";
 
 export const getAllUsers = async (c: Context) => {
   try {
@@ -238,14 +241,18 @@ export const removeFriend = async (c: Context) => {
 export const editUser = async (c: Context) => {
   const { id } = c.req.param();
   const body = await c.req.json();
-  const { name, profilePic, userId, editorId } = body;
+  const { name, profilePic } = body;
+  const editorId = c.get("user").id;
 
   if (
     !mongoose.Types.ObjectId.isValid(id) ||
-    !mongoose.Types.ObjectId.isValid(userId) ||
     !mongoose.Types.ObjectId.isValid(editorId)
   ) {
     return c.json({ error: "Invalid ID format" }, 400);
+  }
+
+  if (id !== editorId) {
+    return c.json({ error: "Permission denied" }, 403);
   }
 
   try {
@@ -253,17 +260,12 @@ export const editUser = async (c: Context) => {
     if (!user) {
       return c.json({ message: "No such user exists" }, 404);
     }
-    const canEdit = await User.findOne({
-      _id: editorId,
-    });
-    if (!canEdit) {
-      return c.json({ error: "Permission denied" }, 403);
-    }
     if (name) user.name = name;
     await user.save();
     if (profilePic) user.profilePic = profilePic;
     await user.save();
 
+    await invalidateAfterUserUpdate(id);
     return c.json({ message: "User updated successfully", user }, 200);
   } catch (error) {
     console.error("Error updating user:", error);
@@ -366,6 +368,11 @@ export const joinServer = async (c: Context) => {
     const updatedServer = await DiscordServer.findByIdAndUpdate(serverId, {
       $addToSet: { members: { user: id, roles: ["member"] } },
     });
+    await ServerMember.findOneAndUpdate(
+      { server: serverId, user: id },
+      { $set: { roles: ["member"] } },
+      { upsert: true }
+    );
     if (!updatedUser) {
       return c.json({ error: "User not found" }, 404);
     }
@@ -412,6 +419,7 @@ export const leaveServer = async (c: Context) => {
     await DiscordServer.findByIdAndUpdate(serverId, {
       $pull: { members: { user: id } },
     });
+    await ServerMember.deleteOne({ server: serverId, user: id });
     io.to(serverId).emit("userLeft", { userId: id, serverId: serverId });
     return c.json(
       { message: "Left server successfully", user: updatedUser },
@@ -636,6 +644,7 @@ export const updateProfile = async (c: Context) => {
       });
     }
 
+    await invalidateAfterUserUpdate(id);
     return c.json(
       {
         message: "Profile updated successfully",

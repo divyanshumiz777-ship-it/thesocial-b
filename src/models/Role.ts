@@ -15,5 +15,7 @@ const RoleSchema = new Schema<IRole>({
   },
 });
 
+RoleSchema.index({ user: 1, server: 1 }, { unique: true });
+
 const Role = mongoose.model<IRole>("Role", RoleSchema);
 export default Role;

@@ -4,15 +4,16 @@ import Group from "../models/Group.ts";
 import Conversation from "../models/Conversation.ts";
 import Message from "../models/Message.ts";
 import { verify } from "hono/jwt";
-import mongoose, { Schema } from "mongoose";
+import mongoose from "mongoose";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
+import CacheInvalidator from "../lib/cacheInvalidation.ts";
 
 const groupDmController = new Hono();
 
 async function verifyJWT(token: string): Promise<any> {
   try {
     const secret = process.env.JWT_SECRET as string;
-    const decoded = await verify(token, secret);
+    const decoded = await verify(token, secret, "HS256");
     return decoded;
   } catch (error) {
     console.error("JWT verification error:", error);
@@ -478,9 +479,7 @@ export const deleteGroup = async (c: Context) => {
       return c.json({ error: "Only group owner can delete group" }, 403);
     }
 
-    if (group.messages.length > 0) {
-      await Message.deleteMany({ _id: { $in: group.messages } });
-    }
+    await Message.deleteMany({ groupId });
 
     await Group.findByIdAndDelete(groupId);
 
@@ -553,7 +552,7 @@ async function migrateConversationToGroup(conversationId: string) {
       owner: firstParticipant._id,
       admins: [firstParticipant._id],
       participants: conversation.participants.map((p: any) => p._id),
-      messages: conversation.messages || [],
+      messages: [],
       isGroupDM: true,
       isDisabled: false,
       createdAt: conversation.createdAt,
@@ -597,29 +596,7 @@ export const getUserGroups = async (c: Context) => {
       .populate("owner", "name email profilePic")
       .sort({ updatedAt: -1 });
 
-    const conversations = await Conversation.find({
-      participants: userObjectId,
-    })
-      .lean()
-      .exec();
-
-    const migratedGroups = [];
-    for (const conv of conversations) {
-      if (Array.isArray(conv.participants) && conv.participants.length >= 2) {
-        const migrated = await migrateConversationToGroup(conv._id.toString());
-        if (migrated) {
-          migratedGroups.push(migrated);
-        }
-      }
-    }
-
-    const allGroups = [...groups, ...migratedGroups];
-    const groupMap = new Map();
-    for (const g of allGroups) {
-      groupMap.set(g._id.toString(), g);
-    }
-
-    return c.json({ success: true, groups: Array.from(groupMap.values()) });
+    return c.json({ success: true, groups });
   } catch (error) {
     console.error("Error fetching user groups:", error);
     return c.json({ error: "Failed to fetch groups" }, 500);
@@ -663,11 +640,12 @@ export const getGroup = async (c: Context) => {
         "name email profilePic status lastSeen"
       );
       await group.populate("owner", "name email profilePic");
-      await group.populate({
-        path: "messages",
-        options: { limit: 50, sort: { createdAt: -1 } },
-        populate: { path: "sender", select: "name email profilePic" },
-      });
+      const messages = await Message.find({ groupId: group._id })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .populate("sender", "name email profilePic")
+        .lean();
+      return c.json({ success: true, group: { ...group.toObject(), messages } });
     }
 
     return c.json({ success: true, group });
@@ -772,9 +750,6 @@ export const sendMessage = async (c: Context) => {
 
     await message.save();
 
-    group.messages.push(message._id as any as Schema.Types.ObjectId);
-    await group.save();
-
     await message.populate("sender", "name email profilePic");
 
     const io = getIoInstance();
@@ -783,6 +758,7 @@ export const sendMessage = async (c: Context) => {
       message: message.toObject(),
     });
 
+    await CacheInvalidator.invalidateGroup(groupId);
     return c.json({ success: true, message: message.toObject() }, 201);
   } catch (error) {
     console.error("Error sending message:", error);
@@ -792,7 +768,12 @@ export const sendMessage = async (c: Context) => {
 
 const editGroupMessage = async (c: Context) => {
   try {
-    const userId = c.get("userId");
+    const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) return c.json({ error: "Unauthorized" }, 401);
+    const decoded = await verifyJWT(token);
+    if (!decoded) return c.json({ error: "Invalid token" }, 401);
+    const userId = getUserIdFromJWT(decoded);
+    if (!userId) return c.json({ error: "Invalid token payload" }, 401);
     const { groupId, messageId } = c.req.param();
     const { content } = await c.req.json();
 
@@ -826,6 +807,7 @@ const editGroupMessage = async (c: Context) => {
     const io = getIoInstance();
     io.to(groupId).emit("message_updated", message.toObject());
 
+    await CacheInvalidator.invalidateGroup(groupId);
     return c.json({ success: true, message: message.toObject() }, 200);
   } catch (error) {
     console.error("Error editing message:", error);
@@ -835,7 +817,12 @@ const editGroupMessage = async (c: Context) => {
 
 const deleteGroupMessage = async (c: Context) => {
   try {
-    const userId = c.get("userId");
+    const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) return c.json({ error: "Unauthorized" }, 401);
+    const decoded = await verifyJWT(token);
+    if (!decoded) return c.json({ error: "Invalid token" }, 401);
+    const userId = getUserIdFromJWT(decoded);
+    if (!userId) return c.json({ error: "Invalid token payload" }, 401);
     const { groupId, messageId } = c.req.param();
 
     const group = await Group.findById(groupId);
@@ -860,14 +847,10 @@ const deleteGroupMessage = async (c: Context) => {
 
     await Message.findByIdAndDelete(messageId);
 
-    group.messages = group.messages.filter(
-      (msgId: any) => msgId.toString() !== messageId
-    );
-    await group.save();
-
     const io = getIoInstance();
     io.to(groupId).emit("message_deleted", messageId);
 
+    await CacheInvalidator.invalidateGroup(groupId);
     return c.json({ success: true, messageId }, 200);
   } catch (error) {
     console.error("Error deleting message:", error);
@@ -877,9 +860,14 @@ const deleteGroupMessage = async (c: Context) => {
 
 const toggleGroupReaction = async (c: Context) => {
   try {
-    const authUserId = c.get("userId");
+    const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) return c.json({ error: "Unauthorized" }, 401);
+    const decoded = await verifyJWT(token);
+    if (!decoded) return c.json({ error: "Invalid token" }, 401);
+    const authUserId = getUserIdFromJWT(decoded);
+    if (!authUserId) return c.json({ error: "Invalid token payload" }, 401);
     const { groupId, messageId } = c.req.param();
-    const { emoji, userId } = await c.req.json();
+    const { emoji } = await c.req.json();
 
     if (!emoji) {
       return c.json({ error: "Emoji is required" }, 400);
@@ -898,7 +886,7 @@ const toggleGroupReaction = async (c: Context) => {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
 
-    const userObjectId = new mongoose.Types.ObjectId(userId || authUserId);
+    const userObjectId = new mongoose.Types.ObjectId(authUserId);
 
     const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
 
@@ -974,7 +962,7 @@ export const getGroupMessages = async (c: Context) => {
     const userId = getUserIdFromJWT(decoded);
     if (!userId) return c.json({ error: "Invalid token payload" }, 401);
 
-    const group = await Group.findById(groupId).select("participants owner messages");
+    const group = await Group.findById(groupId).select("participants owner");
     if (!group) return c.json({ error: "Group not found" }, 404);
 
     const isParticipant = group.participants.some(
@@ -984,18 +972,11 @@ export const getGroupMessages = async (c: Context) => {
       return c.json({ error: "Not a member of this group" }, 403);
     }
 
-    const total = group.messages.length;
-    const startIdx = Math.max(0, total - skip - limit);
-    const endIdx = Math.max(0, total - skip);
-    const messageIds = group.messages.slice(startIdx, endIdx);
-
-    if (messageIds.length === 0) {
-      return c.json([]);
-    }
-
-    const messages = await Message.find({ _id: { $in: messageIds } })
-      .populate("sender", "name email profilePic username")
+    const messages = await Message.find({ groupId: group._id })
       .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("sender", "name email profilePic username")
       .lean();
 
     return c.json(messages);

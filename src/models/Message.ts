@@ -23,6 +23,7 @@ export interface IMessage extends Document {
   server: Types.ObjectId;
   thread?: Types.ObjectId;
   conversationId?: Types.ObjectId;
+  groupId?: Types.ObjectId;
   replyTo?: Types.ObjectId;
   reactions: IReaction[];
   mentions: Types.ObjectId[];
@@ -72,6 +73,7 @@ const MessageSchema = new Schema<IMessage>(
     channel: { type: Schema.Types.ObjectId, ref: "Channel" },
     server: { type: Schema.Types.ObjectId, ref: "DiscordServer" },
     conversationId: { type: Schema.Types.ObjectId, ref: "Conversation" },
+    groupId: { type: Schema.Types.ObjectId, ref: "Group" },
     thread: { type: Schema.Types.ObjectId, ref: "Thread" },
     replyTo: { type: Schema.Types.ObjectId, ref: "Message" },
     reactions: [ReactionSchema],
@@ -95,6 +97,10 @@ const MessageSchema = new Schema<IMessage>(
 
 MessageSchema.index({ server: 1, channel: 1, thread: 1, createdAt: -1 });
 MessageSchema.index({ plainText: "text", content: "text" });
+MessageSchema.index({ conversationId: 1, createdAt: -1 });
+MessageSchema.index({ groupId: 1, createdAt: -1 });
+MessageSchema.index({ sender: 1, createdAt: -1 });
+MessageSchema.index({ pinned: 1, channel: 1 });
 
 const Message = mongoose.model<IMessage>("Message", MessageSchema);
 export default Message;

@@ -14,4 +14,6 @@ const WebhookSchema = new Schema<IWebhook>({
   createdAt: { type: Date, default: Date.now },
 });
 
+WebhookSchema.index({ owner: 1 });
+
 export default mongoose.model<IWebhook>("Webhook", WebhookSchema);

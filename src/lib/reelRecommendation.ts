@@ -2,6 +2,7 @@ import { Reel } from "../models/Reel.ts";
 import { UserReelInteraction } from "../models/UserReelInteraction.ts";
 import { UserReelPreference } from "../models/UserReelPreference.ts";
 import { Types } from "mongoose";
+import { cache } from "./redis.ts";
 
 export interface ReelScoreResult {
   reelId: string;
@@ -39,6 +40,10 @@ export const getPersonalizedFeed = async (
   userId: string,
   limit: number = 20,
 ): Promise<any[]> => {
+  const cacheKey = `reel:feed:${userId}:${limit}`;
+  const cached = await cache.get<any[]>(cacheKey);
+  if (cached) return cached;
+
   try {
     const userObjId = Types.ObjectId.createFromHexString(userId);
 
@@ -141,6 +146,7 @@ export const getPersonalizedFeed = async (
 
     const feedReels = [...personalizedReels, ...trendingReels, ...randomReels];
 
+    await cache.set(cacheKey, feedReels, 300); // 5-min TTL
     return feedReels;
   } catch (error) {
     console.error("Error getting personalized feed:", error);

@@ -244,7 +244,6 @@ export const createMessage = async (c: Context) => {
       channel: channelId,
     });
     await Thread.findByIdAndUpdate(threadId, {
-      $push: { messages: newMessage._id },
       $addToSet: { senders: senderId },
     });
     io.to(channelId).emit("message", newMessage);
@@ -336,9 +335,6 @@ export const deleteMessage = async (c: Context) => {
       return c.json({ error: "Invalid channel ID" }, 400);
     }
     io.to(channelId).emit("messageDeleted", messageId);
-    await Thread.findByIdAndUpdate(threadId, {
-      $pull: { messages: messageId },
-    });
     return c.json({ message: "Message deleted successfully" }, 200);
   } catch (error) {
     console.error("Error deleting message:", error);

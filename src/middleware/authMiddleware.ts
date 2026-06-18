@@ -18,6 +18,7 @@ export const authMiddleware = async (c: Context, next: Next) => {
 
   const jwtVerifier = jwt({
     secret: jwtSecret,
+    alg: "HS256",
   });
 
   try {

@@ -118,6 +118,7 @@ const UserSchema = new Schema<IUser>({
 UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ name: "text", email: "text" });
 UserSchema.index({ lastSeen: 1 });
+UserSchema.index({ provider: 1, providerAccountId: 1 });
 
 const User = mongoose.model<IUser>("User", UserSchema);
 

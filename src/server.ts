@@ -2,7 +2,10 @@ import "dotenv/config";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { Server as SocketIOServer } from "socket.io";
-import { verify } from "jsonwebtoken";
+import { createAdapter } from "@socket.io/redis-adapter";
+import Redis from "ioredis";
+import jwt from "jsonwebtoken";
+const { verify } = jwt;
 import { connectDB } from "./config/db.ts";
 import { setIoInstance } from "./config/socket.ts";
 import app from "./app.ts";
@@ -71,6 +74,13 @@ async function startServer() {
       pingInterval: 25_000,
       connectTimeout: 20_000,
     });
+
+    // ── Socket.IO Redis adapter (horizontal scaling) ──────────────────────────
+    if (process.env.REDIS_URL) {
+      const pubClient = new Redis(process.env.REDIS_URL);
+      const subClient = pubClient.duplicate();
+      io.adapter(createAdapter(pubClient, subClient));
+    }
 
     setIoInstance(io);
 
@@ -193,6 +203,27 @@ async function startServer() {
           joinedRooms.add(conversationId);
         } catch (err) {
           console.error("join-dm error:", err);
+        }
+      });
+
+      // ── Reel rooms — viewers join so like/comment counts broadcast in real-time
+      socket.on("join-reel", (reelId: string) => {
+        try {
+          if (!reelId) return;
+          socket.join(`reel:${reelId}`);
+          joinedRooms.add(`reel:${reelId}`);
+        } catch (err) {
+          console.error("join-reel error:", err);
+        }
+      });
+
+      socket.on("leave-reel", (reelId: string) => {
+        try {
+          if (!reelId) return;
+          socket.leave(`reel:${reelId}`);
+          joinedRooms.delete(`reel:${reelId}`);
+        } catch {
+          /* non-fatal */
         }
       });
 

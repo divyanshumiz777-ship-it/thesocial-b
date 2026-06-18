@@ -2,7 +2,6 @@ import { Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import cacheMiddleware from "./middleware/cacheMiddleware.ts";
 import requestLogger from "./middleware/requestLogger.ts";
-import securityHeaders from "./middleware/securityHeaders.ts";
 import helmetMiddleware from "./middleware/helmetMiddleware.ts";
 import Sentry from "./lib/sentry.ts";
 import { metrics, metricsEndpoint } from "./middleware/metrics.ts";
@@ -53,7 +52,6 @@ const isTest = process.env.NODE_ENV === "test";
 if (!isTest) {
   app.use(metrics);
   app.use(helmetMiddleware);
-  app.use(securityHeaders);
   app.use(requestLogger);
 }
 

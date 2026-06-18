@@ -1,5 +1,7 @@
 import { Context } from "hono";
 import Category from "../models/Category.ts";
+import Channel from "../models/Channel.ts";
+import Message from "../models/Message.ts";
 import DiscordServer from "../models/DiscordServer.ts";
 import mongoose from "mongoose";
 
@@ -76,11 +78,43 @@ export const getCategories = async (c: Context) => {
 };
 export const deleteCategory = async (c: Context) => {
   const { categoryId } = c.req.param();
+
+  if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+    return c.json({ error: "Invalid category ID format" }, 400);
+  }
+
+  const session = await mongoose.startSession();
   try {
-    await Category.findByIdAndDelete(categoryId);
+    await session.withTransaction(async () => {
+      const category = await Category.findById(categoryId).session(session);
+      if (!category) {
+        throw Object.assign(new Error("Category not found"), { status: 404 });
+      }
+
+      const channels = await Channel.find({ category: categoryId }, "_id").session(session);
+      const channelIds = channels.map((ch) => ch._id);
+
+      if (channelIds.length > 0) {
+        await Message.deleteMany({ channel: { $in: channelIds } }).session(session);
+        await Channel.deleteMany({ category: categoryId }).session(session);
+      }
+
+      await DiscordServer.updateOne(
+        { categories: categoryId },
+        { $pull: { categories: new mongoose.Types.ObjectId(categoryId) } }
+      ).session(session);
+
+      await Category.findByIdAndDelete(categoryId).session(session);
+    });
+
     return c.json({ message: "Category deleted successfully" });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting category:", error);
+    if (error.status === 404) {
+      return c.json({ error: "Category not found" }, 404);
+    }
     return c.json({ error: "Internal server error" }, 500);
+  } finally {
+    await session.endSession();
   }
 };

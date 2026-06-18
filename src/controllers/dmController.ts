@@ -4,6 +4,7 @@ import Conversation from "../models/Conversation.ts";
 import Message from "../models/Message.ts";
 import User from "../models/User.ts";
 import { Server } from "socket.io";
+import { invalidateAfterDM } from "../lib/cacheInvalidation.ts";
 
 export const createDm = async (c: Context) => {
   const senderId = c.get("user").id;
@@ -91,7 +92,6 @@ export const createDm = async (c: Context) => {
     });
 
     await Conversation.findByIdAndUpdate(conversation._id, {
-      $push: { messages: newMessage._id },
       $pull: {
         hiddenFor: { $in: [senderId, receiverId] },
         deletedFor: { $in: [senderId, receiverId] },
@@ -102,6 +102,7 @@ export const createDm = async (c: Context) => {
       io.to(conversation._id.toString()).emit("dm:new-message", newMessage);
     }
 
+    await invalidateAfterDM(conversation._id.toString(), senderId);
     return c.json(newMessage, 201);
   } catch (error) {
     console.error("Error creating DM:", error);
@@ -125,15 +126,13 @@ export const getDm = async (c: Context) => {
 
     const deletedAt = conversation.deletedAt?.get(user?.id?.toString());
 
-    let messageQuery: any = { _id: { $in: conversation.messages } };
+    const messageQuery: any = { conversationId };
 
     if (deletedAt) {
       messageQuery.createdAt = { $gt: deletedAt };
     }
 
-    const messages = await mongoose
-      .model("Message")
-      .find(messageQuery)
+    const messages = await Message.find(messageQuery)
       .populate({
         path: "sender",
         select: "name profilePic email about",
@@ -183,6 +182,7 @@ export const editMessage = async (c: Context) => {
       io.to(conversationId).emit("messageUpdated", updatedMessage);
     }
 
+    await invalidateAfterDM(conversationId, userId);
     return c.json(updatedMessage, 200);
   } catch (error) {
     console.error("Error editing message:", error);
@@ -219,10 +219,6 @@ export const deleteMessage = async (c: Context) => {
       message.attachments = [];
       await message.save();
 
-      await Conversation.findByIdAndUpdate(conversationId, {
-        $pull: { messages: messageId },
-      });
-
       if (io) {
         io.to(conversationId).emit("messageDeleted", {
           messageId,
@@ -248,6 +244,7 @@ export const deleteMessage = async (c: Context) => {
       }
     }
 
+    await invalidateAfterDM(conversationId, userId);
     return c.json({ message: "Message deleted successfully" }, 200);
   } catch (error) {
     console.error("Error deleting message:", error);
@@ -276,15 +273,14 @@ export const deleteDm = async (c: Context) => {
       );
     }
     if (!deletedConversation.participants.length) {
-      await Message.deleteMany({
-        _id: { $in: deletedConversation.messages },
-      });
+      await Message.deleteMany({ conversationId });
       await Conversation.findByIdAndDelete(conversationId);
     } else {
       if (io) {
         io.to(conversationId).emit("conversationUpdated", deletedConversation);
       }
     }
+    await invalidateAfterDM(conversationId, userId);
     return c.json({ message: "DM deleted successfully" }, 200);
   } catch (error) {
     console.error("Error deleting DM:", error);

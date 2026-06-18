@@ -16,6 +16,7 @@ import {
   markdownToPlainText,
   hasMarkdown,
 } from "../lib/markdown.ts";
+import { invalidateAfterMessage } from "../lib/cacheInvalidation.ts";
 
 export const searchMessages = async (c: Context) => {
   const { channelId } = c.req.param();
@@ -246,10 +247,10 @@ export const createMessage = async (c: Context) => {
     }
 
     await Channel.findByIdAndUpdate(channelId, {
-      $push: { messages: newMessage._id },
       $addToSet: { senders: senderId },
     });
 
+    await invalidateAfterMessage(channelId, serverId);
     return c.json(populatedMessage, 201);
   } catch (error) {
     console.error("Error creating message:", error);
@@ -323,11 +324,6 @@ export const deleteMessage = async (c: Context) => {
       message.attachments = [];
       await message.save();
 
-      await Channel.updateOne(
-        { messages: messageId },
-        { $pull: { messages: messageId } }
-      );
-
       io.to(channelIdString).emit("messageDeleted", {
         messageId,
         type: "for-everyone",
@@ -349,6 +345,7 @@ export const deleteMessage = async (c: Context) => {
       });
     }
 
+    await invalidateAfterMessage(channelIdString, message.server?.toString());
     return c.json({ message: "Message deleted successfully" }, 200);
   } catch (error) {
     console.error("Error deleting message:", error);
@@ -450,6 +447,7 @@ export const updateMessage = async (c: Context) => {
     const channelIdString = updatedMessage.channel?.toString();
     if (channelIdString) {
       io.to(channelIdString).emit("messageUpdated", updatedMessage);
+      await invalidateAfterMessage(channelIdString, updatedMessage.server?.toString());
     }
 
     return c.json(updatedMessage, 200);
@@ -479,7 +477,8 @@ export const toggleReaction = async (c: Context) => {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
 
-    const userIdString = user._id.toString();
+    const userIdString = user.id;
+    const userObjectId = new mongoose.Types.ObjectId(user.id);
 
     const reactionIndex = message.reactions.findIndex((r) => r.emoji === emoji);
     const hasThisReaction =
@@ -513,9 +512,9 @@ export const toggleReaction = async (c: Context) => {
         (r) => r.emoji === emoji
       );
       if (newReactionIndex > -1) {
-        message.reactions[newReactionIndex].users.push(user._id);
+        message.reactions[newReactionIndex].users.push(userObjectId);
       } else {
-        message.reactions.push({ emoji, users: [user._id] });
+        message.reactions.push({ emoji, users: [userObjectId] });
       }
     }
 

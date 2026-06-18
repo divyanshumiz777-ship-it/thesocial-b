@@ -23,7 +23,7 @@ botRouter.post(
   replayWebhookEvent
 );
 botRouter.get("/webhook-event-logs", authMiddleware, async (c) => {
-  const jwtPayload = c.get("jwtPayload");
+  const jwtPayload = c.get("jwtPayload") as { id?: string };
   const ownerId = jwtPayload?.id;
   const { event, status } = c.req.query();
   const query: any = {};
