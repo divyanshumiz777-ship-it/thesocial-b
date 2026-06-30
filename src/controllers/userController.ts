@@ -89,9 +89,16 @@ export const updateUserSettings = async (c: Context) => {
 };
 import mongoose from "mongoose";
 import { Context } from "hono";
+import { verify } from "hono/jwt";
 import User from "../models/User.ts";
 import DiscordServer from "../models/DiscordServer.ts";
 import { Server } from "socket.io";
+import {
+  canViewFullProfile,
+  getProfileVisibility,
+  redactedProfileView,
+  fullProfileView,
+} from "../lib/profilePrivacy.ts";
 import {
   createNotification,
   sendNotificationViaSocket,
@@ -104,22 +111,45 @@ export const getAllUsers = async (c: Context) => {
   try {
     const auth = c.get("user");
     const authId = auth?.id;
+
+    if (authId && mongoose.Types.ObjectId.isValid(authId)) {
+      const me = await User.findById(authId).select("friends blockedUsers");
+      const friendSet = new Set((me?.friends || []).map(String));
+      const myBlocked = (me?.blockedUsers || []).map((b) => b.toString());
+
+      // Part 9: a blocked user (either direction) must not appear in
+      // suggestions/listings — exclude self, users I blocked, and users who
+      // blocked me.
+      const users = await User.find({
+        _id: { $ne: authId, $nin: myBlocked },
+        blockedUsers: { $ne: authId },
+      });
+
+      const enriched = users.map((u) => {
+        const isFriend = friendSet.has(String(u._id));
+        // Part 10: honour profile visibility. Private non-friends are
+        // identity-only (no email/avatar), via the same rule as the helper.
+        const restricted =
+          getProfileVisibility(u) === "private" && !isFriend;
+        return {
+          _id: u._id,
+          name: u.name,
+          email: restricted ? "" : u.email,
+          profilePic: restricted ? "" : u.profilePic,
+          lastSeen: u.lastSeen,
+          isFriend,
+        };
+      });
+
+      if (enriched.length === 0) {
+        return c.json({ message: "No users found" }, 404);
+      }
+      return c.json({ users: enriched }, 200);
+    }
+
     const users = await User.find();
     if (users.length === 0) {
       return c.json({ message: "No users found" }, 404);
-    }
-    if (authId && mongoose.Types.ObjectId.isValid(authId)) {
-      const me = await User.findById(authId).select("friends");
-      const friendSet = new Set((me?.friends || []).map(String));
-      const enriched = users.map((u) => ({
-        _id: u._id,
-        name: u.name,
-        email: u.email,
-        profilePic: u.profilePic,
-        lastSeen: u.lastSeen,
-        isFriend: friendSet.has(String(u._id)),
-      }));
-      return c.json({ users: enriched }, 200);
     }
     return c.json({ users }, 200);
   } catch (error) {
@@ -140,7 +170,43 @@ export const getUser = async (c: Context) => {
     if (!user) {
       return c.json({ message: "No user found" }, 404);
     }
-    return c.json({ user }, 200);
+
+    // This route is public, so resolve the viewer from the bearer token when
+    // present — needed to honour "friends"/"private" visibility.
+    let viewerId: string | null = null;
+    const authHeader = c.req.header("Authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const decoded = (await verify(
+          authHeader.slice(7),
+          process.env.JWT_SECRET as string,
+          "HS256"
+        )) as { id?: string };
+        viewerId = decoded?.id ?? null;
+      } catch {
+        viewerId = null; // anonymous viewer
+      }
+    }
+
+    let isFriend = false;
+    if (viewerId && viewerId !== id) {
+      const viewer = await User.findById(viewerId).select("friends");
+      isFriend = !!viewer?.friends?.some((f) => f.toString() === id);
+    }
+
+    const visibility = getProfileVisibility(user);
+
+    if (canViewFullProfile(user, { viewerId, isFriend })) {
+      // Curated view only — never return the raw Mongoose doc, which would
+      // leak friends/blockedUsers/settings/providerAccountId/reset tokens.
+      return c.json({ user: fullProfileView(user), restricted: false, visibility }, 200);
+    }
+
+    // Restricted: identity only.
+    return c.json(
+      { user: redactedProfileView(user), restricted: true, visibility },
+      200
+    );
   } catch (error) {
     console.error("Error fetching user:", error);
     return c.json({ error: "Internal server error" }, 500);
@@ -486,6 +552,10 @@ export const getUserConversations = async (c: Context) => {
 
   try {
     const Conversation = (await import("../models/Conversation.ts")).default;
+    const Message = (await import("../models/Message.ts")).default;
+    const ConversationReadStatus = (
+      await import("../models/ConversationReadStatus.ts")
+    ).default;
 
     const conversations = await Conversation.find({
       participants: { $in: [id] },
@@ -501,73 +571,112 @@ export const getUserConversations = async (c: Context) => {
     })
       .populate({
         path: "participants",
-        select: "name email profilePic lastSeen",
+        select: "name email profilePic lastSeen settings",
         match: { _id: { $ne: id } },
-      })
-      .populate({
-        path: "messages",
-        options: {
-          sort: { createdAt: -1 },
-          limit: 1,
-        },
-        populate: {
-          path: "sender",
-          select: "name",
-        },
       })
       .sort({ updatedAt: -1 });
 
-    interface PopulatedMessage {
-      _id: mongoose.Types.ObjectId;
-      content: string;
-      sender: { _id: mongoose.Types.ObjectId; name: string };
-      createdAt: Date;
-      edited?: boolean;
-    }
+    // One query for this user's read state across all visible conversations,
+    // instead of one query per conversation.
+    const readStatuses = await ConversationReadStatus.find({
+      user: id,
+      conversation: { $in: conversations.map((conv) => conv._id) },
+    }).select("conversation lastReadAt");
 
-    const formattedConversations = conversations.map((conv) => {
-      function isPopulatedMessage(msg: any): msg is PopulatedMessage {
-        return (
-          msg &&
-          typeof msg === "object" &&
-          "content" in msg &&
-          "sender" in msg &&
-          "createdAt" in msg
-        );
-      }
+    const lastReadByConv = new Map<string, Date>(
+      readStatuses.map((rs) => [rs.conversation.toString(), rs.lastReadAt])
+    );
 
-      const lastMsgDoc =
-        Array.isArray(conv.messages) &&
-        conv.messages.length > 0 &&
-        isPopulatedMessage(conv.messages[0])
-          ? conv.messages[0]
-          : null;
+    const formattedConversations = await Promise.all(
+      conversations.map(async (conv) => {
+        const convId = conv._id;
+        // Per-user "delete conversation" hides everything before this cutoff.
+        const deletedAt = conv.deletedAt?.get(id.toString());
+        const lastReadAt = lastReadByConv.get(convId.toString());
 
-      const deletedAt = conv.deletedAt?.get(id.toString());
-      const shouldShowLastMessage =
-        !deletedAt ||
-        (lastMsgDoc && new Date(lastMsgDoc.createdAt) > deletedAt);
+        // Latest message visible to this user (skips messages they deleted
+        // for themselves, and anything before their delete cutoff).
+        const lastMsgQuery: Record<string, unknown> = {
+          conversationId: convId,
+          deletedFor: { $ne: id },
+        };
+        if (deletedAt) lastMsgQuery.createdAt = { $gt: deletedAt };
 
-      const lastMessage =
-        lastMsgDoc && shouldShowLastMessage
+        const lastMsgDoc = await Message.findOne(lastMsgQuery)
+          .sort({ createdAt: -1 })
+          .select("content sender createdAt edited attachmentsV2")
+          .populate({ path: "sender", select: "name" })
+          .lean<{
+            _id: mongoose.Types.ObjectId;
+            content: string;
+            sender:
+              | { _id: mongoose.Types.ObjectId; name: string }
+              | mongoose.Types.ObjectId;
+            createdAt: Date;
+            edited?: boolean;
+            attachmentsV2?: unknown[];
+          }>();
+
+        const lastMessage = lastMsgDoc
           ? {
               _id: lastMsgDoc._id,
               content: lastMsgDoc.content,
               sender: lastMsgDoc.sender,
               createdAt: lastMsgDoc.createdAt,
               edited: lastMsgDoc.edited || false,
+              attachmentsV2: lastMsgDoc.attachmentsV2 || [],
             }
           : null;
 
-      return {
-        _id: conv._id,
-        participants: conv.participants,
-        lastMessage,
-        unreadCount: 0,
-        createdAt: conv.createdAt,
-        updatedAt: conv.updatedAt,
-      };
-    });
+        // Unread = messages from the other participant after the later of
+        // {last read, delete cutoff}, excluding messages deleted for everyone
+        // or for this user.
+        const cutoffs = [lastReadAt, deletedAt].filter(Boolean) as Date[];
+        const unreadCutoff = cutoffs.length
+          ? new Date(Math.max(...cutoffs.map((d) => d.getTime())))
+          : null;
+
+        const unreadQuery: Record<string, unknown> = {
+          conversationId: convId,
+          sender: { $ne: id },
+          deletedForEveryone: { $ne: true },
+          deletedFor: { $ne: id },
+        };
+        if (unreadCutoff) unreadQuery.createdAt = { $gt: unreadCutoff };
+
+        const unreadCount = await Message.countDocuments(unreadQuery);
+
+        // Redact profilePic for participants who set visibility to "private".
+        // "friends" accounts are fine — DM contacts are effectively friends.
+        const redactedParticipants = (conv.participants as any[]).map((p) => {
+          const visibility = p?.settings?.privacy?.profileVisibility;
+          return {
+            _id: p._id,
+            name: p.name,
+            email: p.email,
+            profilePic: visibility === "private" ? "" : (p.profilePic ?? ""),
+            lastSeen: p.lastSeen,
+          };
+        });
+
+        return {
+          _id: conv._id,
+          participants: redactedParticipants,
+          lastMessage,
+          unreadCount,
+          createdAt: conv.createdAt,
+          updatedAt: conv.updatedAt,
+          lastActivityAt: lastMessage?.createdAt ?? conv.updatedAt,
+        };
+      })
+    );
+
+    // Authoritative ordering: most recent activity first.
+    formattedConversations.sort(
+      (a, b) =>
+        new Date(b.lastActivityAt).getTime() -
+        new Date(a.lastActivityAt).getTime()
+    );
 
     return c.json({ conversations: formattedConversations }, 200);
   } catch (error) {
@@ -630,7 +739,7 @@ export const updateProfile = async (c: Context) => {
 
     const io = getIoInstance();
     if (io) {
-      io.emit("user:profile-changed", {
+      io.to(String(user._id)).emit("user:profile-changed", {
         userId: String(user._id),
         name: user.name,
         profilePic: user.profilePic,

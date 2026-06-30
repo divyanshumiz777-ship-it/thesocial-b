@@ -35,6 +35,7 @@ interface IUser extends Document {
     language?: string;
     connectedAccounts?: Array<{ provider: string; accountId: string }>;
     mutedServers?: Types.ObjectId[];
+    mutedConversations?: Types.ObjectId[];
   };
 }
 
@@ -113,6 +114,7 @@ const UserSchema = new Schema<IUser>({
       },
     ],
     mutedServers: [{ type: Schema.Types.ObjectId, ref: "DiscordServer" }],
+    mutedConversations: [{ type: Schema.Types.ObjectId, ref: "Conversation" }],
   },
 });
 UserSchema.index({ email: 1 }, { unique: true });

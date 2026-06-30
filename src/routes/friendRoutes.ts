@@ -11,6 +11,9 @@ import {
   getSentRequests,
   getUserProfile,
   searchUsers,
+  getNicknames,
+  setNickname,
+  removeNickname,
 } from "../controllers/friendController.ts";
 
 const friendRoutes = new Hono();
@@ -24,6 +27,9 @@ friendRoutes.patch("/request/:requestId/accept", acceptFriendRequest);
 friendRoutes.patch("/request/:requestId/reject", rejectFriendRequest);
 friendRoutes.get("/", getFriendsList);
 friendRoutes.get("/online", getOnlineFriends);
+friendRoutes.get("/nicknames", getNicknames);
+friendRoutes.put("/:friendId/nickname", setNickname);
+friendRoutes.delete("/:friendId/nickname", removeNickname);
 friendRoutes.delete("/:friendId", removeFriend);
 friendRoutes.get("/user/:userId", getUserProfile);
 friendRoutes.get("/search/users", searchUsers);

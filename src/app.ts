@@ -18,6 +18,7 @@ import { botRouter } from "./routes/botRoutes.ts";
 import attachmentRoutes from "./routes/attachmentRoutes.ts";
 import friendRoutes from "./routes/friendRoutes.ts";
 import { reelRouter } from "./routes/reelRoutes.ts";
+import { assistantRouter } from "./routes/assistantRoutes.ts";
 import { getIoInstance } from "./config/socket.ts";
 import { rateLimit } from "./middleware/rateLimit.ts";
 
@@ -82,9 +83,17 @@ if (!isTest) {
       "/api/v1/message/get-messages/", // socket provides liveness
       "/api/v1/dm/get-dm/", // same
       "/api/v1/user/conversations", // always needs fresh
+      "/api/v1/dm/hidden-conversations", // must reflect hide/unhide immediately;
+      // cache runs before authMiddleware → anonymous key shared across users
+      "/api/v1/dm/blocked-users", // same: per-user list, must reflect block/unblock now
       "/api/v1/notification", // always needs fresh
       "/api/v1/user/settings", // settings must be current
       "/api/v1/auth/", // never cache auth
+      "/api/v1/user/friends", // always reflects current friend list
+      "/api/v1/friends/requests/", // pending/sent requests must be fresh after accept/reject
+      "/api/v1/friends/", // friend list via friend routes
+      "/api/v1/user/user-servers", // cache runs before authMiddleware → key is "anonymous",
+      // so all users would share one stale list (own created/joined servers wouldn't show)
     ];
 
     if (skipPaths.some((p) => path.startsWith(p))) {
@@ -145,5 +154,6 @@ app.route("/api/v1/bot", botRouter);
 app.route("/api/v1/attachments", attachmentRoutes);
 app.route("/api/v1/friends", friendRoutes);
 app.route("/api/v1/reels", reelRouter);
+app.route("/api/v1/assistant", assistantRouter);
 
 export default app;

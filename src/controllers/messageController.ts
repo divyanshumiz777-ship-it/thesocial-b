@@ -171,17 +171,16 @@ export const createMessage = async (c: Context) => {
     });
 
     const populatedMessage = await Message.findById(newMessage._id)
-      .populate("sender")
+      .populate("sender", "name profilePic email")
       .populate({
         path: "replyTo",
-        populate: { path: "sender" },
+        populate: { path: "sender", select: "name profilePic email" },
       });
 
     if (!populatedMessage) {
       return c.json({ error: "Failed to retrieve the created message" }, 500);
     }
 
-    io.to(channelId).emit("message", populatedMessage);
     io.to(channelId).emit("messageCreated", populatedMessage);
     io.to(serverId.toString()).emit("server:new-message", {
       serverId: serverId.toString(),
@@ -190,14 +189,6 @@ export const createMessage = async (c: Context) => {
     });
 
     if (mentions.length > 0) {
-      mentions.forEach((userId: string) => {
-        io.to(userId).emit("newMention", {
-          message: populatedMessage,
-          channelId,
-          serverId,
-        });
-      });
-
       try {
         const channelDoc = await Channel.findById(channelId).select("name");
         const channelName = channelDoc?.name || "channel";
@@ -275,10 +266,10 @@ export const getMessagesByChannelId = async (c: Context) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("sender")
+      .populate("sender", "name profilePic email")
       .populate({
         path: "replyTo",
-        populate: { path: "sender" },
+        populate: { path: "sender", select: "name profilePic email" },
       });
 
     return c.json(messages || [], 200);
@@ -434,10 +425,10 @@ export const updateMessage = async (c: Context) => {
       updateOperation,
       { new: true }
     )
-      .populate("sender")
+      .populate("sender", "name profilePic email")
       .populate({
         path: "replyTo",
-        populate: { path: "sender" },
+        populate: { path: "sender", select: "name profilePic email" },
       });
 
     if (!updatedMessage) {

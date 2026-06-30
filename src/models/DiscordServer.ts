@@ -4,6 +4,7 @@ import {
   IMuted,
   IBanned,
   IJoinRequest,
+  IPrivacy,
 } from "./discordServer.types.ts";
 
 const muted = new Schema<IMuted>(
@@ -48,6 +49,15 @@ const joinRequestSchema = new Schema<IJoinRequest>(
   { _id: false }
 );
 
+const privacySchema = new Schema<IPrivacy>(
+  {
+    showInSearch: { type: Boolean, default: true },
+    allowMemberDMs: { type: Boolean, default: true },
+    allowFriendRequests: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
 const DiscordServerSchema = new Schema<IDiscordServer>(
   {
     owner: { type: Schema.Types.ObjectId, ref: "User", required: true },
@@ -64,6 +74,7 @@ const DiscordServerSchema = new Schema<IDiscordServer>(
     members: [memberSchema],
     joinRequests: [joinRequestSchema],
     onlineCount: { type: Number, default: 0 },
+    privacy: { type: privacySchema, default: () => ({}) },
   },
   { timestamps: true }
 );

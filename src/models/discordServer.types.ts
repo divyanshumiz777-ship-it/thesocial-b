@@ -36,6 +36,12 @@ export interface IJoinRequest {
   status: "pending" | "approved" | "rejected";
 }
 
+export interface IPrivacy {
+  showInSearch: boolean;
+  allowMemberDMs: boolean;
+  allowFriendRequests: boolean;
+}
+
 export interface IDiscordServer {
   _id: Types.ObjectId;
   owner: Types.ObjectId;
@@ -48,6 +54,7 @@ export interface IDiscordServer {
   joinRequests?: IJoinRequest[];
   onlineCount: number;
   imageUrl: string;
+  privacy?: IPrivacy;
 }
 
 export interface IDiscordServerPopulated

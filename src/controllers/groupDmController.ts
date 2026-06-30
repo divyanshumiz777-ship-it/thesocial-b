@@ -753,7 +753,7 @@ export const sendMessage = async (c: Context) => {
     await message.populate("sender", "name email profilePic");
 
     const io = getIoInstance();
-    io.to(groupId).emit("group_message", {
+    io.to(groupId).emit("groupMessage", {
       groupId,
       message: message.toObject(),
     });
@@ -805,7 +805,7 @@ const editGroupMessage = async (c: Context) => {
     await message.populate("sender", "name email profilePic");
 
     const io = getIoInstance();
-    io.to(groupId).emit("message_updated", message.toObject());
+    io.to(groupId).emit("messageUpdated", message.toObject());
 
     await CacheInvalidator.invalidateGroup(groupId);
     return c.json({ success: true, message: message.toObject() }, 200);
@@ -848,7 +848,7 @@ const deleteGroupMessage = async (c: Context) => {
     await Message.findByIdAndDelete(messageId);
 
     const io = getIoInstance();
-    io.to(groupId).emit("message_deleted", messageId);
+    io.to(groupId).emit("messageDeleted", messageId);
 
     await CacheInvalidator.invalidateGroup(groupId);
     return c.json({ success: true, messageId }, 200);
@@ -930,7 +930,7 @@ const toggleGroupReaction = async (c: Context) => {
     await message.save();
 
     const io = getIoInstance();
-    io.to(groupId).emit("reaction_updated", {
+    io.to(groupId).emit("reactionUpdated", {
       messageId,
       reactions: message.reactions,
     });

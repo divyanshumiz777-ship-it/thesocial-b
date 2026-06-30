@@ -3,19 +3,47 @@ import mongoose from "mongoose";
 import Conversation from "../models/Conversation.ts";
 import Message from "../models/Message.ts";
 import User from "../models/User.ts";
+import ConversationReadStatus from "../models/ConversationReadStatus.ts";
 import { Server } from "socket.io";
 import { invalidateAfterDM } from "../lib/cacheInvalidation.ts";
 
+/**
+ * Emits a lightweight conversation-list update to each participant's personal
+ * room (every socket auto-joins its own `userId` room on connect). This is what
+ * keeps the DM sidebar live — ordering, last-message preview and unread badges —
+ * for conversations that are NOT currently open. The existing room-scoped events
+ * (`dm:new-message`, `messageUpdated`, ...) are preserved for the open chat.
+ */
+const emitConversationActivity = (
+  io: Server | undefined,
+  participantIds: (string | mongoose.Types.ObjectId)[],
+  payload: {
+    conversationId: string;
+    type: "new" | "edit" | "delete";
+    senderId?: string;
+    messageId?: string;
+    lastMessage?: unknown;
+  }
+) => {
+  if (!io) return;
+  for (const pid of participantIds) {
+    if (!pid) continue;
+    io.to(pid.toString()).emit("conversation:activity", payload);
+  }
+};
+
 export const createDm = async (c: Context) => {
   const senderId = c.get("user").id;
-  const { receiverId, content, attachments } = await c.req.json();
+  const { receiverId, content, attachments, gifUrl, stickerUrl } =
+    await c.req.json();
   const io = c.get("io") as Server | undefined;
 
-  if (
-    !senderId ||
-    !receiverId ||
-    (!content && (!attachments || attachments.length === 0))
-  ) {
+  const hasAttachments =
+    (Array.isArray(attachments) && attachments.length > 0) ||
+    !!gifUrl ||
+    !!stickerUrl;
+
+  if (!senderId || !receiverId || (!content && !hasAttachments)) {
     return c.json({ error: "Missing required fields" }, 400);
   }
   if (
@@ -36,42 +64,27 @@ export const createDm = async (c: Context) => {
       return c.json({ error: "Receiver not found" }, 404);
     }
 
-    console.log("Checking if sender is blocked by receiver:");
-    console.log("Receiver blockedUsers:", receiver.blockedUsers);
-    console.log("SenderId to check:", senderId);
-
     if (receiver.blockedUsers?.some((u) => u.toString() === senderId)) {
-      console.log("❌ BLOCKED: Sender is in receiver's blocked list");
       return c.json({ error: "You cannot send messages to this user" }, 403);
     }
-    console.log("✅ NOT BLOCKED: Sender is not in receiver's blocked list");
 
     if (sender.blockedUsers?.some((u) => u.toString() === receiverId)) {
-      console.log("❌ BLOCKED: Receiver is in sender's blocked list");
       return c.json(
         { error: "You have blocked this user. Unblock them to send messages." },
         403
       );
     }
-    console.log("✅ NOT BLOCKED: Receiver is not in sender's blocked list");
 
     const isFriend = sender.friends?.includes(
       mongoose.Types.ObjectId.createFromHexString(receiverId)
     );
 
-    console.log("Checking friend status:");
-    console.log("Sender friends:", sender.friends);
-    console.log("Receiver ID to check:", receiverId);
-    console.log("Is friend?", isFriend);
-
     if (!isFriend) {
-      console.log("❌ NOT FRIENDS: Cannot send message");
       return c.json(
         { error: "You can only message friends. Send a friend request first." },
         403
       );
     }
-    console.log("✅ FRIENDS: Can send message");
 
     const participants = [senderId, receiverId].sort();
 
@@ -83,27 +96,74 @@ export const createDm = async (c: Context) => {
       conversation = await Conversation.create({ participants });
     }
 
+    // Build the typed attachment list. GIFs/stickers arrive as URLs (from the
+    // picker); files arrive as already-uploaded metadata (from /attachments/upload).
+    const attachmentsV2: Array<Record<string, unknown>> = [];
+    if (gifUrl) {
+      attachmentsV2.push({ url: gifUrl, type: "gif", mimeType: "image/gif" });
+    }
+    if (stickerUrl) {
+      attachmentsV2.push({
+        url: stickerUrl,
+        type: "sticker",
+        mimeType: "image/png",
+      });
+    }
+    if (Array.isArray(attachments)) {
+      for (const a of attachments) {
+        if (a && a.url) attachmentsV2.push(a);
+      }
+    }
+
     const newMessage = await Message.create({
-      content,
+      content: content ?? "",
       sender: senderId,
       conversationId: conversation._id,
-      attachmentsV2:
-        attachments && Array.isArray(attachments) ? attachments : [],
+      attachments: attachmentsV2.map((a) => a.url as string),
+      attachmentsV2,
     });
 
+    // Keep the conversation's denormalized message list current and bump
+    // updatedAt. Sending a message also un-hides / un-deletes the conversation
+    // for both participants (it just became active again). We must ALSO clear
+    // each participant's per-user `deletedAt` cutoff — otherwise the conversation
+    // resurfaces in the list but reads still filter out all history before the
+    // old cutoff, producing a "ghost" empty conversation.
     await Conversation.findByIdAndUpdate(conversation._id, {
+      $push: { messages: newMessage._id },
       $pull: {
         hiddenFor: { $in: [senderId, receiverId] },
         deletedFor: { $in: [senderId, receiverId] },
       },
+      $unset: {
+        [`deletedAt.${senderId}`]: "",
+        [`deletedAt.${receiverId}`]: "",
+      },
+    });
+
+    const populatedMessage = await Message.findById(newMessage._id).populate({
+      path: "sender",
+      select: "name profilePic email about",
     });
 
     if (io) {
-      io.to(conversation._id.toString()).emit("dm:new-message", newMessage);
+      // Open chat (participants currently in the conversation room).
+      io.to(conversation._id.toString()).emit(
+        "dm:new-message",
+        populatedMessage
+      );
+      // Sidebar/list update for everyone — even with the chat closed.
+      emitConversationActivity(io, participants, {
+        conversationId: conversation._id.toString(),
+        type: "new",
+        senderId: senderId.toString(),
+        messageId: newMessage._id.toString(),
+        lastMessage: populatedMessage,
+      });
     }
 
     await invalidateAfterDM(conversation._id.toString(), senderId);
-    return c.json(newMessage, 201);
+    return c.json(populatedMessage ?? newMessage, 201);
   } catch (error) {
     console.error("Error creating DM:", error);
     return c.json({ error: "Failed to create DM" }, 500);
@@ -180,6 +240,16 @@ export const editMessage = async (c: Context) => {
 
     if (io) {
       io.to(conversationId).emit("messageUpdated", updatedMessage);
+
+      const conversation = await Conversation.findById(conversationId).select(
+        "participants"
+      );
+      emitConversationActivity(io, conversation?.participants ?? [], {
+        conversationId,
+        type: "edit",
+        messageId: messageId.toString(),
+        lastMessage: updatedMessage,
+      });
     }
 
     await invalidateAfterDM(conversationId, userId);
@@ -224,6 +294,15 @@ export const deleteMessage = async (c: Context) => {
           messageId,
           type: "for-everyone",
         });
+
+        const conversation = await Conversation.findById(conversationId).select(
+          "participants"
+        );
+        emitConversationActivity(io, conversation?.participants ?? [], {
+          conversationId,
+          type: "delete",
+          messageId: messageId.toString(),
+        });
       }
     } else {
       if (!message.deletedFor) {
@@ -240,6 +319,12 @@ export const deleteMessage = async (c: Context) => {
         io.to(userId).emit("messageDeletedForMe", {
           messageId,
           type: "for-me",
+        });
+        // Only the acting user's preview can change for a "for-me" delete.
+        emitConversationActivity(io, [userId], {
+          conversationId,
+          type: "delete",
+          messageId: messageId.toString(),
         });
       }
     }
@@ -291,7 +376,7 @@ export const deleteDm = async (c: Context) => {
 export const hideConversation = async (c: Context) => {
   const { conversationId } = c.req.param();
   const user = c.get("user");
-  console.log(user);
+  const io = c.get("io") as Server | undefined;
 
   if (!mongoose.Types.ObjectId.isValid(conversationId))
     return c.json({ error: "Invalid ID format" }, 400);
@@ -302,11 +387,9 @@ export const hideConversation = async (c: Context) => {
       return c.json({ error: "Conversation not found" }, 404);
     }
 
-    console.log(conversation.participants);
-    const isParticipant = conversation.participants?.some((p) => {
-      console.log(p);
-      return p?.toString() === user?.id?.toString();
-    });
+    const isParticipant = conversation.participants?.some(
+      (p) => p?.toString() === user?.id?.toString()
+    );
 
     if (!isParticipant) {
       return c.json(
@@ -324,12 +407,22 @@ export const hideConversation = async (c: Context) => {
     );
 
     const alreadyHidden = conversation.hiddenFor.some(
-      (u) => u && u.toString() === user._id?.toString()
+      (u) => u && u.toString() === user.id?.toString()
     );
 
     if (!alreadyHidden) {
-      conversation.hiddenFor.push(user._id);
+      conversation.hiddenFor.push(new mongoose.Types.ObjectId(user.id));
       await conversation.save();
+    }
+
+    // Sync removal to all of THIS user's other tabs/devices. Scoped to the
+    // acting user's personal room only — hiding is per-user, the other
+    // participant must not be affected. Reuses the existing event the frontend
+    // already handles (useDirectMessages onRemoved).
+    if (io) {
+      io.to(user.id.toString()).emit("conversation:removed", {
+        conversationId,
+      });
     }
 
     return c.json({ message: "Conversation hidden successfully" }, 200);
@@ -342,6 +435,7 @@ export const hideConversation = async (c: Context) => {
 export const unhideConversation = async (c: Context) => {
   const { conversationId } = c.req.param();
   const user = c.get("user");
+  const io = c.get("io") as Server | undefined;
 
   if (!mongoose.Types.ObjectId.isValid(conversationId))
     return c.json({ error: "Invalid ID format" }, 400);
@@ -365,9 +459,17 @@ export const unhideConversation = async (c: Context) => {
 
     if (conversation.hiddenFor) {
       conversation.hiddenFor = conversation.hiddenFor.filter(
-        (u) => u && u.toString() !== user._id?.toString()
+        (u) => u && u.toString() !== user.id?.toString()
       );
       await conversation.save();
+    }
+
+    // Tell this user's other tabs/devices to pull the conversation back into
+    // the list. Scoped to the acting user's personal room only.
+    if (io) {
+      io.to(user.id.toString()).emit("conversation:restored", {
+        conversationId,
+      });
     }
 
     return c.json({ message: "Conversation unhidden successfully" }, 200);
@@ -377,10 +479,45 @@ export const unhideConversation = async (c: Context) => {
   }
 };
 
+export const getHiddenConversations = async (c: Context) => {
+  const user = c.get("user");
+  const userId = user.id;
+
+  if (!mongoose.Types.ObjectId.isValid(userId))
+    return c.json({ error: "Invalid user ID" }, 400);
+
+  try {
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const conversations = (await Conversation.find({
+      participants: { $in: [userObjectId] },
+      hiddenFor: { $in: [userObjectId] },
+    })
+      .populate({
+        path: "participants",
+        select: "name email profilePic lastSeen",
+        match: { _id: { $ne: userId } },
+      })
+      .sort({ updatedAt: -1 })
+      .lean()) as any[];
+
+    const formatted = conversations.map((conv) => ({
+      _id: conv._id,
+      participants: conv.participants,
+      createdAt: conv.createdAt,
+      updatedAt: conv.updatedAt,
+    }));
+
+    return c.json({ conversations: formatted }, 200);
+  } catch (error) {
+    console.error("Error fetching hidden conversations:", error);
+    return c.json({ error: "Failed to fetch hidden conversations" }, 500);
+  }
+};
+
 export const deleteConversationForUser = async (c: Context) => {
   const { conversationId } = c.req.param();
   const user = c.get("user");
-  console.log(user);
+  const io = c.get("io") as Server | undefined;
 
   if (!mongoose.Types.ObjectId.isValid(conversationId))
     return c.json({ error: "Invalid ID format" }, 400);
@@ -415,7 +552,7 @@ export const deleteConversationForUser = async (c: Context) => {
     );
 
     if (!alreadyDeleted) {
-      conversation.deletedFor.push(user._id);
+      conversation.deletedFor.push(new mongoose.Types.ObjectId(user.id));
 
       if (!conversation.deletedAt) {
         conversation.deletedAt = new Map();
@@ -425,10 +562,67 @@ export const deleteConversationForUser = async (c: Context) => {
       await conversation.save();
     }
 
+    // Per-user delete: sync removal to this user's other tabs/devices only.
+    if (io) {
+      io.to(user.id.toString()).emit("conversation:removed", {
+        conversationId,
+      });
+    }
+
     return c.json({ message: "Conversation deleted successfully" }, 200);
   } catch (error) {
     console.error("Error deleting conversation:", error);
     return c.json({ error: "Failed to delete conversation" }, 500);
+  }
+};
+
+/**
+ * "Clear chat" — wipe the message history for THIS user only while keeping the
+ * conversation in their list (composer stays usable, empty state shown). Unlike
+ * deleteConversationForUser this does NOT add to `deletedFor`, so the row stays
+ * visible; it only sets the per-user `deletedAt` cutoff so reads filter out all
+ * prior messages. Per-user + reversible-on-new-message, reuses existing schema.
+ */
+export const clearConversation = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const user = c.get("user");
+  const io = c.get("io") as Server | undefined;
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) {
+      return c.json({ error: "Conversation not found" }, 404);
+    }
+
+    const isParticipant = conversation.participants?.some(
+      (p) => p?.toString() === user?.id?.toString()
+    );
+    if (!isParticipant) {
+      return c.json(
+        { error: "You are not a participant of this conversation" },
+        403
+      );
+    }
+
+    if (!conversation.deletedAt) conversation.deletedAt = new Map();
+    conversation.deletedAt.set(user?.id?.toString(), new Date());
+    await conversation.save();
+
+    // Empty the open thread on every device of this user (the chat listens for
+    // this and resets its messages; the conversation row stays in the list).
+    if (io) {
+      io.to(user.id.toString()).emit("conversation:cleared", {
+        conversationId,
+      });
+    }
+
+    return c.json({ message: "Conversation cleared successfully" }, 200);
+  } catch (error) {
+    console.error("Error clearing conversation:", error);
+    return c.json({ error: "Failed to clear conversation" }, 500);
   }
 };
 
@@ -470,34 +664,75 @@ export const blockUser = async (c: Context) => {
     user.blockedUsers.push(mongoose.Types.ObjectId.createFromHexString(userId));
     await user.save();
 
-    const conversations = await Conversation.find({
-      participants: { $all: [currentUser.id, userId] },
-    });
+    // What happens to the conversation is the blocker's choice.
+    // keep = leave it visible · hide = hide for blocker · delete = remove for blocker.
+    const body = (await c.req.json().catch(() => ({}))) as {
+      conversationAction?: "keep" | "hide" | "delete";
+    };
+    const conversationAction = (
+      ["keep", "hide", "delete"].includes(body.conversationAction ?? "")
+        ? body.conversationAction
+        : "hide"
+    ) as "keep" | "hide" | "delete";
 
-    for (const conversation of conversations) {
-      if (!conversation.hiddenFor) {
-        conversation.hiddenFor = [];
-      }
-      if (
-        !conversation.hiddenFor.some((u) => u?.toString() === currentUser.id)
-      ) {
-        conversation.hiddenFor.push(
-          mongoose.Types.ObjectId.createFromHexString(currentUser.id)
-        );
+    const blockerId = mongoose.Types.ObjectId.createFromHexString(
+      currentUser.id
+    );
+    const affectedConversationIds: string[] = [];
+
+    if (conversationAction !== "keep") {
+      const conversations = await Conversation.find({
+        participants: { $all: [currentUser.id, userId] },
+      });
+
+      for (const conversation of conversations) {
+        if (conversationAction === "hide") {
+          conversation.hiddenFor = (conversation.hiddenFor ?? []).filter(
+            (u) => u !== null && u !== undefined
+          );
+          if (
+            !conversation.hiddenFor.some((u) => u?.toString() === currentUser.id)
+          ) {
+            conversation.hiddenFor.push(blockerId);
+          }
+        } else {
+          // delete (per-user)
+          conversation.deletedFor = (conversation.deletedFor ?? []).filter(
+            (u) => u !== null && u !== undefined
+          );
+          if (
+            !conversation.deletedFor.some(
+              (u) => u?.toString() === currentUser.id
+            )
+          ) {
+            conversation.deletedFor.push(blockerId);
+          }
+          if (!conversation.deletedAt) conversation.deletedAt = new Map();
+          conversation.deletedAt.set(currentUser.id, new Date());
+        }
         await conversation.save();
+        affectedConversationIds.push(conversation._id.toString());
       }
     }
 
     if (io) {
-      io.emit("user:blocked", {
+      io.to(currentUser.id).emit("user:blocked", {
         blockedBy: currentUser.id,
         blockedUser: userId,
       });
+      // Remove the conversation from the blocker's list on every device.
+      for (const convId of affectedConversationIds) {
+        io.to(currentUser.id).emit("conversation:removed", {
+          conversationId: convId,
+        });
+      }
     }
 
     return c.json(
       {
         message: "User blocked successfully",
+        conversationAction,
+        conversationIds: affectedConversationIds,
         blockedUser: {
           _id: userToBlock._id,
           name: userToBlock.name,
@@ -556,20 +791,47 @@ export const unblockUser = async (c: Context) => {
       participants: { $all: [currentUser.id, userId] },
     });
 
+    // Fully reverse whatever the block did to the conversation: un-hide AND
+    // un-delete (block could have used "delete"), and clear the per-user
+    // deletedAt cutoff so prior history is visible again. Symmetric with block.
+    const restoredConversationIds: string[] = [];
     for (const conversation of conversations) {
-      if (conversation.hiddenFor) {
+      let changed = false;
+      if (conversation.hiddenFor?.some((u) => u?.toString() === currentUser.id)) {
         conversation.hiddenFor = conversation.hiddenFor.filter(
           (u) => u?.toString() !== currentUser.id
         );
+        changed = true;
+      }
+      if (
+        conversation.deletedFor?.some((u) => u?.toString() === currentUser.id)
+      ) {
+        conversation.deletedFor = conversation.deletedFor.filter(
+          (u) => u?.toString() !== currentUser.id
+        );
+        changed = true;
+      }
+      if (conversation.deletedAt?.has(currentUser.id)) {
+        conversation.deletedAt.delete(currentUser.id);
+        changed = true;
+      }
+      if (changed) {
         await conversation.save();
+        restoredConversationIds.push(conversation._id.toString());
       }
     }
 
     if (io) {
-      io.emit("user:unblocked", {
+      io.to(currentUser.id).emit("user:unblocked", {
         unblockedBy: currentUser.id,
         unblockedUser: userId,
       });
+      // Bring the conversation back on every device of the unblocker.
+      for (const convId of restoredConversationIds) {
+        io.to(currentUser.id).emit("conversation:restored", {
+          conversationId: convId,
+        });
+      }
     }
 
     return c.json(
@@ -623,6 +885,283 @@ export const getBlockedUsers = async (c: Context) => {
   } catch (error) {
     console.error("Error fetching blocked users:", error);
     return c.json({ error: "Failed to fetch blocked users" }, 500);
+  }
+};
+
+/**
+ * Marks a conversation as read for the current user up to its latest message.
+ * Upserts a ConversationReadStatus row (the source of truth for unread counts)
+ * and notifies the user's OTHER devices so unread badges clear everywhere.
+ */
+export const markConversationRead = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const userId = c.get("user").id;
+  const io = c.get("io") as Server | undefined;
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const conversation = await Conversation.findById(conversationId).select(
+      "participants"
+    );
+    if (!conversation) {
+      return c.json({ error: "Conversation not found" }, 404);
+    }
+
+    const isParticipant = conversation.participants?.some(
+      (p) => p?.toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return c.json(
+        { error: "You are not a participant of this conversation" },
+        403
+      );
+    }
+
+    const latestMessage = await Message.findOne({ conversationId })
+      .sort({ createdAt: -1 })
+      .select("_id");
+
+    await ConversationReadStatus.findOneAndUpdate(
+      { user: userId, conversation: conversationId },
+      {
+        lastReadMessage: latestMessage?._id,
+        lastReadAt: new Date(),
+      },
+      { upsert: true, new: true }
+    );
+
+    const now = new Date();
+
+    if (io) {
+      // Sync read state across this user's devices (the personal room).
+      io.to(userId.toString()).emit("conversation:read", {
+        conversationId,
+        userId: userId.toString(),
+      });
+
+      // Notify OTHER participants that this user has seen the conversation.
+      const otherIds = conversation.participants?.filter(
+        (p) => p?.toString() !== userId.toString()
+      ) ?? [];
+      for (const otherId of otherIds) {
+        io.to(otherId.toString()).emit("message:seen", {
+          conversationId,
+          seenAt: now.toISOString(),
+        });
+      }
+    }
+
+    return c.json({ message: "Conversation marked as read" }, 200);
+  } catch (error) {
+    console.error("Error marking conversation as read:", error);
+    return c.json({ error: "Failed to mark conversation as read" }, 500);
+  }
+};
+
+/**
+ * Marks the conversation as delivered for the current user and notifies
+ * other participants so their sent-message ticks advance to "delivered".
+ */
+export const markConversationDelivered = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const userId = c.get("user").id;
+  const io = c.get("io") as Server | undefined;
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const conversation = await Conversation.findById(conversationId).select(
+      "participants"
+    );
+    if (!conversation) return c.json({ error: "Conversation not found" }, 404);
+
+    const isParticipant = conversation.participants?.some(
+      (p) => p?.toString() === userId.toString()
+    );
+    if (!isParticipant)
+      return c.json({ error: "Not a participant" }, 403);
+
+    const latestMessage = await Message.findOne({ conversationId })
+      .sort({ createdAt: -1 })
+      .select("_id");
+
+    const now = new Date();
+    await ConversationReadStatus.findOneAndUpdate(
+      { user: userId, conversation: conversationId },
+      { lastDeliveredMessage: latestMessage?._id, lastDeliveredAt: now },
+      { upsert: true, new: true }
+    );
+
+    if (io) {
+      const otherIds = conversation.participants?.filter(
+        (p) => p?.toString() !== userId.toString()
+      ) ?? [];
+      for (const otherId of otherIds) {
+        io.to(otherId.toString()).emit("message:delivered", {
+          conversationId,
+          deliveredAt: now.toISOString(),
+        });
+      }
+    }
+
+    return c.json({ message: "Conversation marked as delivered" }, 200);
+  } catch (error) {
+    console.error("Error marking conversation as delivered:", error);
+    return c.json({ error: "Failed to mark as delivered" }, 500);
+  }
+};
+
+/**
+ * Returns the OTHER participant's delivery + read status for this conversation.
+ * The sender calls this on mount to hydrate tick display without waiting for a
+ * socket event.
+ */
+export const getConvStatus = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const userId = c.get("user").id;
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const conversation = await Conversation.findById(conversationId).select(
+      "participants"
+    );
+    if (!conversation) return c.json({ error: "Not found" }, 404);
+
+    const otherParticipant = conversation.participants?.find(
+      (p) => p?.toString() !== userId.toString()
+    );
+    if (!otherParticipant)
+      return c.json({ lastDeliveredAt: null, lastSeenAt: null });
+
+    const status = await ConversationReadStatus.findOne({
+      user: otherParticipant,
+      conversation: conversationId,
+    }).select("lastDeliveredAt lastReadAt");
+
+    return c.json({
+      lastDeliveredAt: status?.lastDeliveredAt?.toISOString() ?? null,
+      lastSeenAt: status?.lastReadAt?.toISOString() ?? null,
+    });
+  } catch (error) {
+    console.error("Error fetching conv status:", error);
+    return c.json({ error: "Failed to fetch status" }, 500);
+  }
+};
+
+/**
+ * Files shared in a conversation — flattened from message attachments.
+ * Replaces the dead GET /conversation/:id/files the profile panel used to call.
+ */
+export const getConversationFiles = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const userId = c.get("user").id;
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const conversation = await Conversation.findById(conversationId).select(
+      "participants deletedAt"
+    );
+    if (!conversation) return c.json({ error: "Conversation not found" }, 404);
+
+    const isParticipant = conversation.participants?.some(
+      (p) => p?.toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return c.json(
+        { error: "You are not a participant of this conversation" },
+        403
+      );
+    }
+
+    const deletedAt = conversation.deletedAt?.get(userId.toString());
+    const query: Record<string, unknown> = {
+      conversationId,
+      deletedFor: { $ne: userId },
+      deletedForEveryone: { $ne: true },
+      attachmentsV2: { $exists: true, $ne: [] },
+    };
+    if (deletedAt) query.createdAt = { $gt: deletedAt };
+
+    const messages = await Message.find(query)
+      .sort({ createdAt: -1 })
+      .select("attachmentsV2 sender createdAt")
+      .populate({ path: "sender", select: "name" })
+      .limit(200);
+
+    const files: Array<Record<string, unknown>> = [];
+    for (const msg of messages) {
+      for (const att of msg.attachmentsV2 ?? []) {
+        files.push({
+          _id: `${msg._id}-${files.length}`,
+          fileName: att.fileName || att.type,
+          fileUrl: att.url,
+          fileType: att.mimeType || att.type,
+          fileSize: att.fileSize || 0,
+          uploadedAt: (msg as any).createdAt,
+          uploadedBy: msg.sender,
+        });
+      }
+    }
+
+    return c.json({ files, count: files.length }, 200);
+  } catch (error) {
+    console.error("Error fetching conversation files:", error);
+    return c.json({ error: "Failed to fetch conversation files" }, 500);
+  }
+};
+
+/** Whether the current user has muted this conversation. */
+export const getConversationMuteStatus = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const userId = c.get("user").id;
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const user = await User.findById(userId).select(
+      "settings.mutedConversations"
+    );
+    const isMuted = !!user?.settings?.mutedConversations?.some(
+      (id) => id?.toString() === conversationId
+    );
+    return c.json({ isMuted }, 200);
+  } catch (error) {
+    console.error("Error fetching mute status:", error);
+    return c.json({ error: "Failed to fetch mute status" }, 500);
+  }
+};
+
+/** Mute/unmute a conversation for the current user (persisted per-user). */
+export const setConversationMute = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const userId = c.get("user").id;
+  const { mute } = (await c.req.json().catch(() => ({}))) as {
+    mute?: boolean;
+  };
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const convObjId = new mongoose.Types.ObjectId(conversationId);
+    await User.findByIdAndUpdate(
+      userId,
+      mute
+        ? { $addToSet: { "settings.mutedConversations": convObjId } }
+        : { $pull: { "settings.mutedConversations": convObjId } }
+    );
+    return c.json({ success: true, isMuted: !!mute }, 200);
+  } catch (error) {
+    console.error("Error updating mute status:", error);
+    return c.json({ error: "Failed to update mute status" }, 500);
   }
 };
 

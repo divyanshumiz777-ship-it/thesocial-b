@@ -4,6 +4,16 @@ import { UserReelInteraction } from "../models/UserReelInteraction.ts";
 import { ReelComment } from "../models/ReelComment.ts";
 import { Types } from "mongoose";
 import { getIoInstance } from "../config/socket.ts";
+import {
+  isReelEventStreamEnabled,
+  publishReelEvent,
+  computeCompletionRate,
+} from "../lib/reelEventStream.ts";
+import { getPersonalizedFeed } from "../lib/reelRecommendation.ts";
+import {
+  isRecommendationServiceEnabled,
+  fetchRecommendedFeed,
+} from "../lib/aiServiceClient.ts";
 
 const broadcastReel = (reelId: string, event: string, payload: object) => {
   try {
@@ -66,7 +76,79 @@ const updateInteractionByEvent = (
     case "completed":
       interaction.completed = true;
       break;
+    case "save":
+      // Toggle, mirroring "like": the same event both saves and unsaves.
+      interaction.saved = !interaction.saved;
+      break;
+    case "rewatch":
+      interaction.rewatch_count = (interaction.rewatch_count ?? 0) + 1;
+      break;
   }
+};
+
+/**
+ * Hydrate Recommendation Service reel IDs back into the exact response shape the
+ * feed already returns (populated Reel docs), preserving recommendation order.
+ * Reads only — no writes.
+ */
+const hydratePersonalizedReels = async (
+  reelIds: string[],
+): Promise<any[]> => {
+  const objectIds = reelIds
+    .map((id) => {
+      try {
+        return Types.ObjectId.createFromHexString(id);
+      } catch {
+        return null;
+      }
+    })
+    .filter((id): id is Types.ObjectId => id !== null);
+
+  if (objectIds.length === 0) return [];
+
+  const reels = await Reel.find({
+    _id: { $in: objectIds },
+    isDeleted: false,
+  }).populate("creator_id", "name profilePic");
+
+  // Preserve the order returned by the Recommendation Service.
+  const byId = new Map<string, any>(
+    reels.map((r: any) => [r._id.toString(), r]),
+  );
+  return reelIds.map((id) => byId.get(id)).filter((r) => r != null);
+};
+
+/**
+ * Personalized feed source with gated Recommendation Service integration.
+ *
+ * REC_SERVICE_ENABLED=false (default): returns the existing heuristic feed
+ * (reelRecommendation.getPersonalizedFeed) exactly as before.
+ *
+ * REC_SERVICE_ENABLED=true: calls the Recommendation Service (250ms timeout,
+ * 1 retry, circuit breaker). On timeout / unavailable / empty / invalid /
+ * breaker-open / any exception it immediately falls back to the heuristic.
+ * The rec path never throws; the response shape is unchanged.
+ */
+export const resolvePersonalizedFeed = async (
+  userId: string,
+  limit: number,
+): Promise<any[]> => {
+  if (isRecommendationServiceEnabled()) {
+    try {
+      const reelIds = await fetchRecommendedFeed(userId, { limit });
+      if (reelIds && reelIds.length > 0) {
+        const hydrated = await hydratePersonalizedReels(reelIds);
+        if (hydrated.length > 0) return hydrated;
+      }
+    } catch (error) {
+      console.error(
+        "Recommendation service feed failed; falling back to heuristic:",
+        error,
+      );
+    }
+  }
+  // Default + fallback: existing heuristic — behavior identical to today.
+  return getPersonalizedFeed(userId, limit);
 };
 
 export const trackReelEvent = async (c: Context) => {
@@ -112,6 +194,30 @@ export const trackReelEvent = async (c: Context) => {
           liked: interaction.liked,
         });
       }
+    }
+
+    // Fire-and-forget: mirror the event to the Redis Stream for the
+    // Recommendation Service. Fully gated (REC_EVENT_STREAM_ENABLED, default
+    // OFF). Runs in a detached async task that is never awaited and never
+    // throws, so it cannot block or affect this response. The reel-duration
+    // lookup (for completion_rate) only runs when watch_time is present; if the
+    // duration is unavailable, completion_rate is null.
+    if (isReelEventStreamEnabled()) {
+      void (async () => {
+        let completion_rate: number | null = null;
+        if (typeof watch_time === "number") {
+          const reel = await Reel.findById(reel_id).select("duration");
+          completion_rate = computeCompletionRate(watch_time, reel?.duration);
+        }
+        await publishReelEvent({
+          user_id,
+          reel_id,
+          event_type,
+          watch_time,
+          completion_rate,
+          ts: Date.now(),
+        });
+      })().catch(() => {});
     }
 
     return c.json({ message: "Event tracked successfully", interaction }, 200);
@@ -332,7 +438,16 @@ export const deleteComment = async (c: Context) => {
     comment.isDeleted = true;
     await comment.save();
 
-    await Reel.findByIdAndUpdate(comment.reel_id, { $inc: { commentCount: -1 } });
+    const updatedReel = await Reel.findByIdAndUpdate(
+      comment.reel_id,
+      { $inc: { commentCount: -1 } },
+      { new: true }
+    ).select("commentCount");
+
+    broadcastReel(comment.reel_id.toString(), "reel:comment-updated", {
+      reelId: comment.reel_id.toString(),
+      commentCount: Math.max(0, updatedReel?.commentCount ?? 0),
+    });
 
     return c.json({ message: "Comment deleted" }, 200);
   } catch (error) {

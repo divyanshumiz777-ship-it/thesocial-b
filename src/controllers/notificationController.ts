@@ -1,6 +1,7 @@
 import { Context } from "hono";
 import mongoose from "mongoose";
 import Notification from "../models/Notification.ts";
+import User from "../models/User.ts";
 import { Server } from "socket.io";
 
 interface UserPayload {
@@ -18,6 +19,25 @@ export const createNotification = async (data: {
   actionUrl?: string;
 }) => {
   try {
+    // Part 9: suppress notifications between users with a block relationship
+    // (either direction). Central choke point — covers mentions, friend adds,
+    // server events, etc.
+    if (data.sender && data.recipient && data.sender !== data.recipient) {
+      const [recipient, sender] = await Promise.all([
+        User.findById(data.recipient).select("blockedUsers"),
+        User.findById(data.sender).select("blockedUsers"),
+      ]);
+      const recipientBlockedSender = recipient?.blockedUsers?.some(
+        (u) => u?.toString() === data.sender
+      );
+      const senderBlockedRecipient = sender?.blockedUsers?.some(
+        (u) => u?.toString() === data.recipient
+      );
+      if (recipientBlockedSender || senderBlockedRecipient) {
+        return null;
+      }
+    }
+
     const notification = await Notification.create(data);
     const populatedNotification = await Notification.findById(notification._id)
       .populate("sender", "name profilePic")

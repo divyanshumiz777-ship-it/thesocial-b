@@ -9,10 +9,18 @@ import {
   toggleReaction,
   hideConversation,
   unhideConversation,
+  getHiddenConversations,
   deleteConversationForUser,
+  clearConversation,
   blockUser,
   unblockUser,
   getBlockedUsers,
+  markConversationRead,
+  markConversationDelivered,
+  getConvStatus,
+  getConversationFiles,
+  getConversationMuteStatus,
+  setConversationMute,
 } from "../controllers/dmController.ts";
 import groupDmController from "../controllers/groupDmController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
@@ -35,11 +43,39 @@ dmRouter.put(
   authMiddleware,
   unhideConversation
 );
+dmRouter.get("/hidden-conversations", authMiddleware, getHiddenConversations);
 dmRouter.delete(
   "/delete-conversation/:conversationId",
   authMiddleware,
   deleteConversationForUser
 );
+dmRouter.put(
+  "/clear-conversation/:conversationId",
+  authMiddleware,
+  clearConversation
+);
+dmRouter.put(
+  "/mark-read/:conversationId",
+  authMiddleware,
+  markConversationRead
+);
+dmRouter.put(
+  "/mark-delivered/:conversationId",
+  authMiddleware,
+  markConversationDelivered
+);
+dmRouter.get(
+  "/conv-status/:conversationId",
+  authMiddleware,
+  getConvStatus
+);
+dmRouter.get("/files/:conversationId", authMiddleware, getConversationFiles);
+dmRouter.get(
+  "/mute-status/:conversationId",
+  authMiddleware,
+  getConversationMuteStatus
+);
+dmRouter.put("/mute/:conversationId", authMiddleware, setConversationMute);
 dmRouter.post("/block-user/:userId", authMiddleware, blockUser);
 dmRouter.delete("/unblock-user/:userId", authMiddleware, unblockUser);
 dmRouter.get("/blocked-users", authMiddleware, getBlockedUsers);

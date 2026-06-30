@@ -10,11 +10,9 @@ import {
   deleteComment,
   toggleCommentLike,
   getUserInteractions,
+  resolvePersonalizedFeed,
 } from "../controllers/reelController.ts";
-import {
-  getPersonalizedFeed,
-  getColdStartFeed,
-} from "../lib/reelRecommendation.ts";
+import { getColdStartFeed } from "../lib/reelRecommendation.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 
 export const reelRouter = new Hono();
@@ -46,7 +44,7 @@ reelRouter.get("/feed/personalized/:userId", async (c: Context) => {
     const { userId } = c.req.param();
     const limit = Number.parseInt(c.req.query("limit") ?? "20", 10);
 
-    const feed = await getPersonalizedFeed(userId, limit);
+    const feed = await resolvePersonalizedFeed(userId, limit);
 
     return c.json(
       {

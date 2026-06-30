@@ -1,8 +1,14 @@
 import { Context } from "hono";
 import User from "../models/User.ts";
 import FriendRequest from "../models/FriendRequest.ts";
+import Conversation from "../models/Conversation.ts";
+import FriendNickname from "../models/FriendNickname.ts";
 import mongoose from "mongoose";
 import { getIoInstance } from "../config/socket.ts";
+import {
+  buildProfileView,
+  getProfileVisibility,
+} from "../lib/profilePrivacy.ts";
 
 export const sendFriendRequest = async (c: Context) => {
   try {
@@ -341,6 +347,15 @@ export const removeFriend = async (c: Context) => {
       return c.json({ error: "Invalid friend ID" }, 400);
     }
 
+    // The remover chooses what happens to their conversation:
+    // keep (default) = stays but messaging is disabled (createDm enforces the
+    // friends-only rule) · delete = remove from the remover's side.
+    const body = (await c.req.json().catch(() => ({}))) as {
+      conversationAction?: "keep" | "delete";
+    };
+    const conversationAction =
+      body.conversationAction === "delete" ? "delete" : "keep";
+
     await User.findByIdAndUpdate(userId, {
       $pull: { friends: friendId },
     });
@@ -351,6 +366,25 @@ export const removeFriend = async (c: Context) => {
 
     const io = getIoInstance();
 
+    let removedConversationId: string | null = null;
+    if (conversationAction === "delete") {
+      const conversation = await Conversation.findOne({
+        participants: { $all: [userId, friendId], $size: 2 },
+      });
+      if (conversation) {
+        conversation.deletedFor = (conversation.deletedFor ?? []).filter(
+          (u) => u !== null && u !== undefined
+        );
+        if (!conversation.deletedFor.some((u) => u?.toString() === userId)) {
+          conversation.deletedFor.push(new mongoose.Types.ObjectId(userId));
+        }
+        if (!conversation.deletedAt) conversation.deletedAt = new Map();
+        conversation.deletedAt.set(userId, new Date());
+        await conversation.save();
+        removedConversationId = conversation._id.toString();
+      }
+    }
+
     io.to(userId).emit("friend_removed", {
       friendId,
     });
@@ -359,8 +393,15 @@ export const removeFriend = async (c: Context) => {
       friendId: userId,
     });
 
+    if (removedConversationId) {
+      io.to(userId).emit("conversation:removed", {
+        conversationId: removedConversationId,
+      });
+    }
+
     return c.json({
       message: "Friend removed successfully",
+      conversationAction,
     });
   } catch (error) {
     console.error("Error removing friend:", error);
@@ -379,7 +420,7 @@ export const getUserProfile = async (c: Context) => {
     }
 
     const userProfile = await User.findById(userId).select(
-      "name email profilePic lastSeen friends"
+      "name email profilePic lastSeen about customStatus settings"
     );
 
     if (!userProfile) {
@@ -387,7 +428,7 @@ export const getUserProfile = async (c: Context) => {
     }
 
     const currentUser = await User.findById(currentUserId);
-    const isFriend = currentUser?.friends?.includes(
+    const isFriend = !!currentUser?.friends?.includes(
       new mongoose.Types.ObjectId(userId)
     );
 
@@ -399,9 +440,16 @@ export const getUserProfile = async (c: Context) => {
       status: "pending",
     });
 
+    const view = buildProfileView(userProfile, {
+      viewerId: currentUserId,
+      isFriend,
+    });
+
     return c.json({
-      user: userProfile,
-      isFriend: !!isFriend,
+      user: view,
+      isFriend,
+      restricted: view.restricted,
+      visibility: getProfileVisibility(userProfile),
       pendingRequest: pendingRequest
         ? {
             id: pendingRequest._id,
@@ -429,23 +477,96 @@ export const searchUsers = async (c: Context) => {
       return c.json({ error: "Search query is required" }, 400);
     }
 
+    const currentUser = await User.findById(currentUserId).select(
+      "friends blockedUsers"
+    );
+    const friendIds = new Set(
+      (currentUser?.friends ?? []).map((f) => f.toString())
+    );
+    const myBlocked = (currentUser?.blockedUsers ?? []).map((b) =>
+      b.toString()
+    );
+
+    // Part 9: blocked users (either direction) must not be findable/addable.
     const users = await User.find(
       {
         $text: { $search: query },
-        _id: { $ne: currentUserId },
+        _id: { $ne: currentUserId, $nin: myBlocked },
+        blockedUsers: { $ne: currentUserId },
       },
       { score: { $meta: "textScore" } }
     )
       .sort({ score: { $meta: "textScore" } })
-      .select("name email profilePic lastSeen")
+      .select("name email profilePic lastSeen about customStatus settings")
       .limit(20);
 
+    // Respect each result's profile visibility. Restricted users still appear
+    // (identity only) so they remain findable for friend requests.
+    const view = users.map((u) =>
+      buildProfileView(u, {
+        viewerId: currentUserId,
+        isFriend: friendIds.has(u._id.toString()),
+      })
+    );
+
     return c.json({
-      count: users.length,
-      users,
+      count: view.length,
+      users: view,
     });
   } catch (error) {
     console.error("Error searching users:", error);
     return c.json({ error: "Failed to search users" }, 500);
+  }
+};
+
+export const getNicknames = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const nicknames = await FriendNickname.find({ owner: user.id }).lean();
+    return c.json({
+      nicknames: nicknames.map((n) => ({
+        friendId: n.friend.toString(),
+        nickname: n.nickname,
+      })),
+    });
+  } catch {
+    return c.json({ error: "Failed to fetch nicknames" }, 500);
+  }
+};
+
+export const setNickname = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const friendId = c.req.param("friendId") ?? "";
+    const body = await c.req.json();
+    const nickname = body?.nickname?.trim();
+
+    if (!nickname) return c.json({ error: "Nickname is required" }, 400);
+    if (nickname.length > 32)
+      return c.json({ error: "Nickname too long (max 32 chars)" }, 400);
+    if (!friendId || !mongoose.Types.ObjectId.isValid(friendId))
+      return c.json({ error: "Invalid friend ID" }, 400);
+
+    const doc = await FriendNickname.findOneAndUpdate(
+      { owner: user.id, friend: friendId },
+      { nickname },
+      { upsert: true, new: true }
+    );
+    return c.json({ friendId, nickname: doc.nickname });
+  } catch {
+    return c.json({ error: "Failed to set nickname" }, 500);
+  }
+};
+
+export const removeNickname = async (c: Context) => {
+  try {
+    const user = c.get("user");
+    const friendId = c.req.param("friendId") ?? "";
+    if (!friendId || !mongoose.Types.ObjectId.isValid(friendId))
+      return c.json({ error: "Invalid friend ID" }, 400);
+    await FriendNickname.deleteOne({ owner: user.id, friend: friendId });
+    return c.json({ success: true });
+  } catch {
+    return c.json({ error: "Failed to remove nickname" }, 500);
   }
 };

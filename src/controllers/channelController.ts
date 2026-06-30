@@ -1,6 +1,7 @@
 import { Context } from "hono";
 import DiscordServer from "../models/DiscordServer.ts";
 import Channel from "../models/Channel.ts";
+import Message from "../models/Message.ts";
 import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.ts";
 import { Server } from "socket.io";
@@ -138,6 +139,8 @@ export const deleteChannel = async (c: Context) => {
     if (!deletedChannel) {
       return c.json({ error: "Channel not found" }, 404);
     }
+
+    await Message.deleteMany({ channel: channelId });
 
     await DiscordServer.findByIdAndUpdate(channel.server, {
       $pull: { channels: deletedChannel._id },

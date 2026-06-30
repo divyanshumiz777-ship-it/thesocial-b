@@ -3,6 +3,7 @@ import DiscordServer from "../models/DiscordServer.ts";
 import Category from "../models/Category.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
+import logger from "../lib/logger.ts";
 import Message from "../models/Message.ts";
 import Thread from "../models/Thread.ts";
 import ChannelReadStatus from "../models/ChannelReadStatus.ts";
@@ -32,11 +33,37 @@ export const searchServers = async (c: Context) => {
   try {
     const filter = { name: { $regex: query, $options: "i" } };
     const total = await DiscordServer.countDocuments(filter);
-    const servers = await DiscordServer.find(filter)
-      .sort({ createdAt: -1 })
+    const docs = await DiscordServer.find(filter)
+      .sort({ updatedAt: -1 })
       .skip(skip)
       .limit(limit)
+      .select(
+        "name description imageUrl visibility members channels onlineCount owner createdAt"
+      )
+      .populate({ path: "owner", select: "name profilePic" })
       .lean();
+
+    // Curated result cards — rich enough to render without an icon-only list,
+    // and without leaking the full member roster / ban / mute subdocs.
+    const servers = docs.map((s: any) => ({
+      _id: s._id,
+      name: s.name,
+      description: s.description ?? "",
+      imageUrl: s.imageUrl ?? "",
+      visibility: s.visibility,
+      memberCount: Array.isArray(s.members) ? s.members.length : 0,
+      channelCount: Array.isArray(s.channels) ? s.channels.length : 0,
+      onlineCount: s.onlineCount ?? 0,
+      owner: s.owner
+        ? {
+            _id: s.owner._id,
+            name: s.owner.name,
+            profilePic: s.owner.profilePic ?? "",
+          }
+        : null,
+      createdAt: s.createdAt,
+    }));
+
     return c.json({ servers, total, limit, skip }, 200);
   } catch (error) {
     console.error("Error in searchServers:", error);
@@ -104,6 +131,7 @@ export const createServer = async (
 
   const session = await mongoose.startSession();
   session.startTransaction();
+  let committed = false;
 
   try {
     let imageUrl = "";
@@ -204,24 +232,33 @@ export const createServer = async (
       { session }
     );
 
-    const populatedServer = await DiscordServer.findById(newServer._id)
-      .populate({
+    await session.commitTransaction();
+    committed = true;
+
+    // Populate AFTER commit. A read issued inside the transaction inherits the
+    // connection's primaryPreferred read preference, which MongoDB rejects
+    // ("Read preference in a transaction must be primary"). Outside the
+    // transaction the same read is fine.
+    let populatedServer;
+    try {
+      populatedServer = await DiscordServer.findById(newServer._id).populate({
         path: "categories",
         populate: {
           path: "channels",
           model: "Channel",
         },
-      })
-      .session(session);
-
-    await session.commitTransaction();
+      });
+    } catch {
+      // Creation already succeeded; fall back to the unpopulated document.
+      populatedServer = newServer;
+    }
 
     return c.json(
       { message: "Server created successfully", server: populatedServer },
       201
     );
   } catch (error) {
-    await session.abortTransaction();
+    if (!committed) await session.abortTransaction();
     console.error("Error creating server:", error);
     return c.json({ error: "Internal server error" }, 500);
   } finally {
@@ -237,6 +274,8 @@ export const getServerById = async (c: Context) => {
       return c.json({ error: "Invalid server id" }, 400);
     }
 
+    logger.debug({ serverId }, "getServerById: querying server");
+
     const [server, serverMembers] = await Promise.all([
       DiscordServer.findById(serverId)
         .populate({ path: "owner", select: "name profilePic" })
@@ -251,12 +290,31 @@ export const getServerById = async (c: Context) => {
     ]);
 
     if (!server) {
+      logger.warn({ serverId }, "getServerById: server not found");
       return c.json({ message: "Server not found" }, 404);
     }
 
+    const cats = (server.categories as unknown) as Array<{ _id: unknown; name?: string; channels: unknown[] }>;
+    logger.debug(
+      {
+        serverId,
+        categoriesCount: cats?.length ?? 0,
+        categories: cats?.map((cat) => ({
+          catId: String(cat._id),
+          name: cat.name,
+          channelsCount: Array.isArray(cat.channels) ? cat.channels.length : "not-array",
+          channelIds: Array.isArray(cat.channels)
+            ? cat.channels.map((ch: any) => String(ch._id ?? ch))
+            : [],
+        })),
+        membersCount: serverMembers.length,
+      },
+      "getServerById: populated server — sending to frontend"
+    );
+
     return c.json({ server: { ...server, members: serverMembers } }, 200);
   } catch (error) {
-    console.error("Error fetching server details:", error);
+    logger.error({ serverId, error: String(error) }, "getServerById: internal error");
     return c.json({ error: "Internal server error" }, 500);
   }
 };
@@ -288,12 +346,11 @@ export const editServer = async (
       | "public"
       | "private"
       | undefined;
-    const updates: {
-      name?: string;
-      imageUrl?: string;
-      description?: string;
-      visibility?: "public" | "private";
-    } = {};
+    const privacyShowInSearch = body.get("privacy.showInSearch") as string | null;
+    const privacyAllowMemberDMs = body.get("privacy.allowMemberDMs") as string | null;
+    const privacyAllowFriendRequests = body.get("privacy.allowFriendRequests") as string | null;
+
+    const updates: Record<string, unknown> = {};
 
     if (newName) updates.name = newName;
 
@@ -311,6 +368,15 @@ export const editServer = async (
     if (description !== undefined) updates.description = description;
     if (serverType === "public" || serverType === "private") {
       updates.visibility = serverType;
+    }
+    if (privacyShowInSearch !== null && privacyShowInSearch !== "") {
+      updates["privacy.showInSearch"] = privacyShowInSearch === "true";
+    }
+    if (privacyAllowMemberDMs !== null && privacyAllowMemberDMs !== "") {
+      updates["privacy.allowMemberDMs"] = privacyAllowMemberDMs === "true";
+    }
+    if (privacyAllowFriendRequests !== null && privacyAllowFriendRequests !== "") {
+      updates["privacy.allowFriendRequests"] = privacyAllowFriendRequests === "true";
     }
 
     if (Object.keys(updates).length === 0) {
@@ -573,6 +639,20 @@ export const acceptInvite = async (
       { upsert: true }
     );
     await User.findByIdAndUpdate(user.id, { $addToSet: { servers: serverId } });
+
+    const newUser = await User.findById(user.id).select("name").lean();
+    const io = c.get("io" as any) as Server | undefined;
+    if (io) {
+      io.to(serverId.toString()).emit("memberJoined", {
+        userId: user.id,
+        username: (newUser as any)?.name || "New member",
+      });
+      io.to(serverId.toString()).emit("serverUpdated", {
+        serverId: serverId.toString(),
+        updateType: "newMember",
+        userId: user.id,
+      });
+    }
 
     return c.json({
       message: "Joined server successfully!",
@@ -1018,6 +1098,7 @@ export const muteMember = async (c: Context) => {
 export const unmuteMember = async (c: Context) => {
   const { serverId } = c.req.param();
   const { userId, userToUnmuteId } = await c.req.json();
+  const io: Server = c.get("io");
   if (
     !mongoose.Types.ObjectId.isValid(serverId) ||
     !mongoose.Types.ObjectId.isValid(userId) ||
@@ -1054,6 +1135,10 @@ export const unmuteMember = async (c: Context) => {
       { server: serverId, user: userToUnmuteId },
       { $unset: { muted: "" } }
     );
+    io.to(serverId.toString()).emit("memberUnmuted", {
+      userToUnmuteId,
+      serverId,
+    });
     return c.json({ message: "Member unmuted successfully" }, 200);
   } catch (error) {
     console.error("Error unmuting member:", error);

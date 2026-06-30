@@ -108,8 +108,8 @@ async function startServer() {
 
     const emitRoomCounts = (roomId: string) => {
       const count = io.sockets.adapter.rooms.get(roomId)?.size ?? 0;
-      io.emit("server:member-count", { serverId: roomId, count });
-      io.emit("channel:member-count", { channelId: roomId, count });
+      io.to(roomId).emit("server:member-count", { serverId: roomId, count });
+      io.to(roomId).emit("channel:member-count", { channelId: roomId, count });
     };
 
     const markOnline = (userId: string) => {

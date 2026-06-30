@@ -11,6 +11,8 @@ export interface IUserReelInteraction extends Document {
   commented: boolean;
   follow_creator: boolean;
   completed: boolean;
+  saved: boolean;
+  rewatch_count: number;
   created_at: Date;
   updated_at: Date;
   last_interaction_at: Date;
@@ -57,6 +59,15 @@ const UserReelInteractionSchema = new Schema<IUserReelInteraction>({
   completed: {
     type: Boolean,
     default: false,
+  },
+  saved: {
+    type: Boolean,
+    default: false,
+  },
+  rewatch_count: {
+    type: Number,
+    default: 0,
+    min: 0,
   },
   created_at: {
     type: Date,
