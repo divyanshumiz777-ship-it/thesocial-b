@@ -1,6 +1,20 @@
 node_modules
+dist/
+.DS_Store
+
+# env files
 .env
 .env.local
 .env.production
-.DS_Store
-dist/
+
+# generated files
+audit-report.json
+*.tsbuildinfo
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# keys
+*.pem
