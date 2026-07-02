@@ -5,7 +5,11 @@ import Message from "../models/Message.ts";
 import User from "../models/User.ts";
 import ConversationReadStatus from "../models/ConversationReadStatus.ts";
 import { Server } from "socket.io";
-import { invalidateAfterDM } from "../lib/cacheInvalidation.ts";
+import {
+  invalidateAfterDM,
+  invalidateAfterFollowChange,
+} from "../lib/cacheInvalidation.ts";
+import { formatSingleConversationForUser } from "../lib/dmFormatting.ts";
 
 /**
  * Emits a lightweight conversation-list update to each participant's personal
@@ -169,39 +173,171 @@ export const createDm = async (c: Context) => {
     return c.json({ error: "Failed to create DM" }, 500);
   }
 };
+/**
+ * Finds the existing conversation with `receiverId`, restoring it (unhiding /
+ * un-deleting) for the CALLING user only if they'd previously removed it —
+ * mirrors unhideConversation's per-user model, so opening the chat from this
+ * side never silently un-hides it for the other participant too.
+ *
+ * When no conversation exists yet, this deliberately does NOT create one:
+ * createDm creates the row atomically with the first message, so the other
+ * participant never sees an empty thread before anything is said. Callers
+ * get `{ exists: false }` and fall back to lazy create-on-first-send.
+ */
+export const findOrRestoreDm = async (c: Context) => {
+  const currentUserId = c.get("user").id;
+  const { receiverId } = await c.req.json().catch(() => ({}));
+  const io = c.get("io") as Server | undefined;
+
+  if (
+    !receiverId ||
+    !mongoose.Types.ObjectId.isValid(receiverId) ||
+    !mongoose.Types.ObjectId.isValid(currentUserId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+  if (receiverId === currentUserId) {
+    return c.json({ error: "Cannot start a conversation with yourself" }, 400);
+  }
+
+  try {
+    const me = await User.findById(currentUserId).select(
+      "friends blockedUsers"
+    );
+    if (!me) return c.json({ error: "User not found" }, 404);
+
+    const other = await User.findById(receiverId).select("blockedUsers");
+    if (!other) return c.json({ error: "Receiver not found" }, 404);
+
+    if (other.blockedUsers?.some((u) => u.toString() === currentUserId)) {
+      return c.json({ error: "You cannot message this user" }, 403);
+    }
+    if (me.blockedUsers?.some((u) => u.toString() === receiverId)) {
+      return c.json(
+        { error: "You have blocked this user. Unblock them to send messages." },
+        403
+      );
+    }
+
+    const isFriend = me.friends?.some((f) => f.toString() === receiverId);
+    if (!isFriend) {
+      return c.json(
+        { error: "You can only message friends. Send a friend request first." },
+        403
+      );
+    }
+
+    const participants = [currentUserId, receiverId].sort();
+    const conversation = await Conversation.findOne({
+      participants: { $all: participants },
+    });
+
+    if (!conversation) {
+      return c.json({ exists: false }, 200);
+    }
+
+    const wasHiddenOrDeleted = !!(
+      conversation.hiddenFor?.some((u) => u?.toString() === currentUserId) ||
+      conversation.deletedFor?.some((u) => u?.toString() === currentUserId) ||
+      conversation.deletedAt?.get(currentUserId.toString())
+    );
+
+    if (wasHiddenOrDeleted) {
+      conversation.hiddenFor = (conversation.hiddenFor ?? []).filter(
+        (u) => u?.toString() !== currentUserId
+      );
+      conversation.deletedFor = (conversation.deletedFor ?? []).filter(
+        (u) => u?.toString() !== currentUserId
+      );
+      conversation.deletedAt?.delete(currentUserId.toString());
+      await conversation.save();
+    }
+
+    const populated = await Conversation.findById(conversation._id).populate({
+      path: "participants",
+      select: "name email profilePic lastSeen settings",
+      match: { _id: { $ne: currentUserId } },
+    });
+    if (!populated) return c.json({ error: "Conversation not found" }, 404);
+
+    const formatted = await formatSingleConversationForUser(
+      populated,
+      currentUserId
+    );
+
+    if (wasHiddenOrDeleted) {
+      if (io) {
+        io.to(currentUserId.toString()).emit("conversation:restored", {
+          conversationId: conversation._id.toString(),
+        });
+      }
+      await invalidateAfterDM(conversation._id.toString(), currentUserId);
+    }
+
+    return c.json({ exists: true, conversation: formatted }, 200);
+  } catch (error) {
+    console.error("Error finding/restoring DM:", error);
+    return c.json({ error: "Failed to open conversation" }, 500);
+  }
+};
+
 export const getDm = async (c: Context) => {
   const { conversationId } = c.req.param();
   const user = c.get("user");
 
-  const page = parseInt(c.req.query("page") || "1");
-  const limit = parseInt(c.req.query("limit") || "50");
-  const skip = (page - 1) * limit;
-
   if (!mongoose.Types.ObjectId.isValid(conversationId))
     return c.json({ error: "Invalid ID format" }, 400);
 
+  const limitRaw = parseInt(c.req.query("limit") || "50", 10);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(limitRaw, 1), 100)
+    : 50;
+  const cursor = c.req.query("cursor");
+  if (cursor && !mongoose.Types.ObjectId.isValid(cursor)) {
+    return c.json({ error: "Invalid cursor" }, 400);
+  }
+
   try {
-    const conversation = await Conversation.findById(conversationId);
+    const conversation = await Conversation.findById(conversationId).select(
+      "participants deletedAt"
+    );
     if (!conversation) return c.json({ error: "Conversation not found" }, 404);
+
+    const isParticipant = conversation.participants?.some(
+      (p) => p?.toString() === user?.id?.toString()
+    );
+    if (!isParticipant) {
+      return c.json(
+        { error: "You are not a participant of this conversation" },
+        403
+      );
+    }
 
     const deletedAt = conversation.deletedAt?.get(user?.id?.toString());
 
-    const messageQuery: any = { conversationId };
+    const messageQuery: any = {
+      conversationId,
+      deletedFor: { $ne: user.id },
+    };
+    if (deletedAt) messageQuery.createdAt = { $gt: deletedAt };
+    if (cursor) messageQuery._id = { $lt: cursor };
 
-    if (deletedAt) {
-      messageQuery.createdAt = { $gt: deletedAt };
-    }
-
-    const messages = await Message.find(messageQuery)
+    const page = await Message.find(messageQuery)
       .populate({
         path: "sender",
         select: "name profilePic email about",
       })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .skip(skip);
+      .sort({ _id: -1 })
+      .limit(limit + 1);
 
-    return c.json(messages.reverse(), 200);
+    const hasMore = page.length > limit;
+    const trimmed = hasMore ? page.slice(0, limit) : page;
+    const nextCursor = hasMore ? trimmed[trimmed.length - 1]._id : null;
+
+    return c.json(
+      { messages: trimmed.reverse(), nextCursor, hasMore },
+      200
+    );
   } catch (error) {
     console.error("Error fetching DM:", error);
     return c.json({ error: "Failed to fetch DM" }, 500);
@@ -728,6 +864,10 @@ export const blockUser = async (c: Context) => {
       }
     }
 
+    // Blocking changes what this pair may see of each other in cached
+    // follow/profile responses (areBlocked gates those reads).
+    await invalidateAfterFollowChange(currentUser.id, userId);
+
     return c.json(
       {
         message: "User blocked successfully",
@@ -833,6 +973,10 @@ export const unblockUser = async (c: Context) => {
         });
       }
     }
+
+    // Symmetric with blockUser: cached follow/profile reads between the pair
+    // are gated on the block relationship that just changed.
+    await invalidateAfterFollowChange(currentUser.id, userId);
 
     return c.json(
       {
@@ -1162,6 +1306,111 @@ export const setConversationMute = async (c: Context) => {
   } catch (error) {
     console.error("Error updating mute status:", error);
     return c.json({ error: "Failed to update mute status" }, 500);
+  }
+};
+
+const DM_THEME_PRESETS = new Set([
+  "discord",
+  "whatsapp",
+  "telegram",
+  "instagram",
+  "midnight",
+  "ocean",
+  "forest",
+  "purple",
+]);
+const CUSTOM_DM_THEME_PATTERN = /^custom:#[0-9a-fA-F]{6}$/;
+
+function isValidDmTheme(theme: string): boolean {
+  return DM_THEME_PRESETS.has(theme) || CUSTOM_DM_THEME_PATTERN.test(theme);
+}
+
+/**
+ * Per-viewer conversation theme (bubble/background reskin) — lives on THIS
+ * user's own document, not the shared Conversation, so it's never visible to
+ * or shared with the other participant.
+ */
+export const getConversationTheme = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const userId = c.get("user").id;
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const user = await User.findById(userId).select(
+      "settings.conversationThemes"
+    );
+    const theme =
+      user?.settings?.conversationThemes?.get(conversationId) ?? null;
+    return c.json({ theme }, 200);
+  } catch (error) {
+    console.error("Error fetching conversation theme:", error);
+    return c.json({ error: "Failed to fetch conversation theme" }, 500);
+  }
+};
+
+/** Set (or clear, via theme: null/"default") this viewer's theme for a conversation. */
+export const setConversationTheme = async (c: Context) => {
+  const { conversationId } = c.req.param();
+  const userId = c.get("user").id;
+  const io = c.get("io") as Server | undefined;
+  const { theme } = (await c.req.json().catch(() => ({}))) as {
+    theme?: string | null;
+  };
+
+  if (!mongoose.Types.ObjectId.isValid(conversationId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const conversation = await Conversation.findById(conversationId).select(
+      "participants"
+    );
+    if (!conversation) return c.json({ error: "Conversation not found" }, 404);
+    const isParticipant = conversation.participants?.some(
+      (p) => p?.toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return c.json(
+        { error: "You are not a participant of this conversation" },
+        403
+      );
+    }
+
+    const clearing = theme === null || theme === undefined || theme === "default";
+    if (clearing) {
+      await User.findByIdAndUpdate(userId, {
+        $unset: { [`settings.conversationThemes.${conversationId}`]: "" },
+      });
+    } else {
+      if (typeof theme !== "string" || !isValidDmTheme(theme)) {
+        return c.json({ error: "Invalid theme" }, 400);
+      }
+      await User.findByIdAndUpdate(userId, {
+        $set: { [`settings.conversationThemes.${conversationId}`]: theme },
+      });
+    }
+
+    const resolvedTheme = clearing ? null : (theme as string);
+
+    // Private to the viewer — sync to this user's OTHER tabs/devices only,
+    // never to the other participant (who has their own independent choice).
+    if (io) {
+      io.to(userId.toString()).emit("conversation:themeChanged", {
+        conversationId,
+        theme: resolvedTheme,
+      });
+    }
+
+    // GET .../theme/:conversationId is cached per-viewer (not in the app.ts
+    // skip list) — without this, the write above wouldn't be visible until
+    // the cache entry naturally expired.
+    await invalidateAfterDM(conversationId, userId);
+
+    return c.json({ success: true, theme: resolvedTheme }, 200);
+  } catch (error) {
+    console.error("Error setting conversation theme:", error);
+    return c.json({ error: "Failed to set conversation theme" }, 500);
   }
 };
 

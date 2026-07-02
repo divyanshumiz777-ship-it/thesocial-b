@@ -11,6 +11,7 @@ import {
   toggleCommentLike,
   getUserInteractions,
   resolvePersonalizedFeed,
+  togglePinReel,
 } from "../controllers/reelController.ts";
 import { getColdStartFeed } from "../lib/reelRecommendation.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
@@ -35,6 +36,8 @@ reelRouter.post("/interactions/batch", getUserInteractions);
 
 reelRouter.get("/:reelId/comments", getComments);
 reelRouter.post("/:reelId/comments", addComment);
+
+reelRouter.patch("/:reelId/pin", togglePinReel);
 
 reelRouter.get("/:reelId", getReelById);
 reelRouter.delete("/:reelId", deleteReel);

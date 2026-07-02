@@ -3,6 +3,11 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 interface IUser extends Document {
   name: string;
   email: string;
+  username?: string;
+  website?: string;
+  location?: string;
+  bannerUrl?: string;
+  verified?: boolean;
   lastSeen: Date;
   servers?: Types.ObjectId[];
   roles?: Types.ObjectId[];
@@ -16,6 +21,8 @@ interface IUser extends Document {
   providerAccountId?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
   customStatus?: {
     text?: string;
     emoji?: string;
@@ -36,6 +43,11 @@ interface IUser extends Document {
     connectedAccounts?: Array<{ provider: string; accountId: string }>;
     mutedServers?: Types.ObjectId[];
     mutedConversations?: Types.ObjectId[];
+    /** conversationId (string) -> theme name (e.g. "discord") or "custom:#RRGGBB".
+     * Absence of a key means "no override, use the app theme" — this is a
+     * per-VIEWER preference (lives on this user's own doc), never visible to
+     * or shared with the other participant. */
+    conversationThemes?: Map<string, string>;
   };
 }
 
@@ -52,6 +64,15 @@ const UserSchema = new Schema<IUser>({
     ],
     index: true,
   },
+  username: {
+    type: String,
+    trim: true,
+    maxlength: 30,
+  },
+  website: { type: String, trim: true, default: "", maxlength: 200 },
+  location: { type: String, trim: true, default: "", maxlength: 100 },
+  bannerUrl: { type: String, default: "" },
+  verified: { type: Boolean, default: false },
   password: {
     type: String,
     required: [
@@ -115,10 +136,15 @@ const UserSchema = new Schema<IUser>({
     ],
     mutedServers: [{ type: Schema.Types.ObjectId, ref: "DiscordServer" }],
     mutedConversations: [{ type: Schema.Types.ObjectId, ref: "Conversation" }],
+    conversationThemes: { type: Map, of: String, default: undefined },
   },
-});
+}, { timestamps: true });
 UserSchema.index({ email: 1 }, { unique: true });
-UserSchema.index({ name: "text", email: "text" });
+UserSchema.index({ username: 1 }, { unique: true, sparse: true });
+UserSchema.index(
+  { name: "text", username: "text", email: "text", about: "text" },
+  { weights: { name: 10, username: 8, email: 4, about: 1 } }
+);
 UserSchema.index({ lastSeen: 1 });
 UserSchema.index({ provider: 1, providerAccountId: 1 });
 

@@ -17,6 +17,8 @@ import { notificationRouter } from "./routes/notificationRoutes.ts";
 import { botRouter } from "./routes/botRoutes.ts";
 import attachmentRoutes from "./routes/attachmentRoutes.ts";
 import friendRoutes from "./routes/friendRoutes.ts";
+import followRoutes from "./routes/followRoutes.ts";
+import reportRoutes from "./routes/reportRoutes.ts";
 import { reelRouter } from "./routes/reelRoutes.ts";
 import { assistantRouter } from "./routes/assistantRoutes.ts";
 import { getIoInstance } from "./config/socket.ts";
@@ -82,10 +84,17 @@ if (!isTest) {
     const skipPaths = [
       "/api/v1/message/get-messages/", // socket provides liveness
       "/api/v1/dm/get-dm/", // same
+      "/api/v1/dm/groups/", // group info/members/messages — same rationale as
+      // get-dm above (socket provides liveness); also where a member's
+      // presence dot lives, so a stale read here would look like the
+      // gray-dot-while-online bug even after the actual presence fix.
       "/api/v1/user/conversations", // always needs fresh
       "/api/v1/dm/hidden-conversations", // must reflect hide/unhide immediately;
       // cache runs before authMiddleware → anonymous key shared across users
       "/api/v1/dm/blocked-users", // same: per-user list, must reflect block/unblock now
+      "/api/v1/dm/theme/", // must reflect a just-set theme immediately on the
+      // next open — invalidated on write too, but this is the same "socket
+      // already provides liveness for THIS session" class of route as get-dm
       "/api/v1/notification", // always needs fresh
       "/api/v1/user/settings", // settings must be current
       "/api/v1/auth/", // never cache auth
@@ -153,6 +162,8 @@ app.route("/api/v1/notification", notificationRouter);
 app.route("/api/v1/bot", botRouter);
 app.route("/api/v1/attachments", attachmentRoutes);
 app.route("/api/v1/friends", friendRoutes);
+app.route("/api/v1/follow", followRoutes);
+app.route("/api/v1/reports", reportRoutes);
 app.route("/api/v1/reels", reelRouter);
 app.route("/api/v1/assistant", assistantRouter);
 

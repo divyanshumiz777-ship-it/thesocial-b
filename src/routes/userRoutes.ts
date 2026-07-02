@@ -15,6 +15,7 @@ import {
   updateUserSettings,
   updateLastSeen,
   updateProfile,
+  getUserCommunities,
 } from "../controllers/userController.ts";
 import {
   updateCustomStatus,
@@ -32,6 +33,7 @@ userRouter.post("/friends/remove", authMiddleware, removeFriend);
 userRouter.post("/update-last-seen", authMiddleware, updateLastSeen);
 userRouter.get("/all-user-detail", authMiddleware, getAllUsers);
 userRouter.get("/user-detail/:id", getUser);
+userRouter.get("/user-detail/:id/communities", authMiddleware, getUserCommunities);
 userRouter.put("/user-detail/:id", authMiddleware, editUser);
 userRouter.put("/profile/:id", authMiddleware, updateProfile);
 userRouter.delete("/user-detail/:id", authMiddleware, deleteUser);

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import {
   createDm,
+  findOrRestoreDm,
   getDm,
   editMessage,
   deleteMessage,
@@ -21,6 +22,8 @@ import {
   getConversationFiles,
   getConversationMuteStatus,
   setConversationMute,
+  getConversationTheme,
+  setConversationTheme,
 } from "../controllers/dmController.ts";
 import groupDmController from "../controllers/groupDmController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
@@ -28,6 +31,7 @@ import { authMiddleware } from "../middleware/authMiddleware.ts";
 export const dmRouter = new Hono();
 
 dmRouter.post("/create-dm", authMiddleware, createDm);
+dmRouter.post("/find-or-restore-dm", authMiddleware, findOrRestoreDm);
 dmRouter.get("/get-dm/:conversationId", authMiddleware, getDm);
 dmRouter.put("/edit-message/:conversationId", authMiddleware, editMessage);
 dmRouter.put("/delete-message/:conversationId", authMiddleware, deleteMessage);
@@ -76,6 +80,12 @@ dmRouter.get(
   getConversationMuteStatus
 );
 dmRouter.put("/mute/:conversationId", authMiddleware, setConversationMute);
+dmRouter.get(
+  "/theme/:conversationId",
+  authMiddleware,
+  getConversationTheme
+);
+dmRouter.put("/theme/:conversationId", authMiddleware, setConversationTheme);
 dmRouter.post("/block-user/:userId", authMiddleware, blockUser);
 dmRouter.delete("/unblock-user/:userId", authMiddleware, unblockUser);
 dmRouter.get("/blocked-users", authMiddleware, getBlockedUsers);

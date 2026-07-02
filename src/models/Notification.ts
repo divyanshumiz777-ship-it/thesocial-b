@@ -13,7 +13,8 @@ export interface INotification extends Document {
     | "server_invite"
     | "role_updated"
     | "member_joined"
-    | "member_left";
+    | "member_left"
+    | "follow";
   title: string;
   message: string;
   metadata?: {
@@ -57,6 +58,7 @@ const NotificationSchema = new Schema<INotification>(
         "role_updated",
         "member_joined",
         "member_left",
+        "follow",
       ],
       required: true,
       index: true,

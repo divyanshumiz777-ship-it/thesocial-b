@@ -1,4 +1,5 @@
 import { Context, Next } from "hono";
+import { verify } from "hono/jwt";
 import { cache } from "../lib/redis.ts";
 
 const CACHE_TTL = {
@@ -34,16 +35,41 @@ function shouldCache(url: string): boolean {
   return !SKIP_CACHE_ROUTES.some((route) => url.includes(route));
 }
 
-function generateCacheKey(c: Context): string {
-  const url = c.req.url;
-  const user = c.get("user");
-  const userId = user?.id || "anonymous";
+/**
+ * Resolve the viewer for the cache key by VERIFYING the bearer token.
+ *
+ * This middleware runs before the route-level authMiddleware, so c.get("user")
+ * is never populated here — the previous implementation therefore keyed every
+ * entry as "anonymous", sharing one cached response across ALL viewers. For
+ * viewer-dependent endpoints (profile privacy views, follow status/lists) that
+ * was both a staleness bug and a privacy leak.
+ *
+ * Verification (HS256, same as authMiddleware) rather than a bare decode is
+ * required: an unverified decode would let anyone forge a token with a victim's
+ * id and poison that victim's cache entries with anonymous-view responses.
+ * Invalid/absent tokens key as "anonymous" — authenticated routes then 401 in
+ * authMiddleware and non-200s are never cached, while genuinely public routes
+ * share one anonymous entry, which is correct because every anonymous viewer
+ * gets the same view.
+ */
+async function resolveViewerId(c: Context): Promise<string> {
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) return "anonymous";
+  try {
+    const payload = (await verify(
+      authHeader.slice(7),
+      process.env.JWT_SECRET as string,
+      "HS256"
+    )) as { id?: string | number };
+    return payload?.id ? String(payload.id) : "anonymous";
+  } catch {
+    return "anonymous";
+  }
+}
 
-  const parsedUrl = new URL(url);
-  const path = parsedUrl.pathname;
-  const query = parsedUrl.search;
-
-  return `cache:${userId}:${path}${query}`;
+function generateCacheKey(c: Context, viewerId: string): string {
+  const parsedUrl = new URL(c.req.url);
+  return `cache:${viewerId}:${parsedUrl.pathname}${parsedUrl.search}`;
 }
 
 const cacheMiddleware = async (c: Context, next: Next) => {
@@ -59,20 +85,18 @@ const cacheMiddleware = async (c: Context, next: Next) => {
     return;
   }
 
-  const key = generateCacheKey(c);
+  const viewerId = await resolveViewerId(c);
+  const key = generateCacheKey(c, viewerId);
 
   try {
     const cached = await cache.get(key);
     if (cached) {
-      console.log(`✅ Cache HIT: ${key}`);
       c.header("X-Cache", "HIT");
       return c.json(cached);
     }
   } catch (error) {
     console.error(`Cache GET error:`, error);
   }
-
-  console.log(`❌ Cache MISS: ${key}`);
 
   await next();
 
@@ -87,8 +111,6 @@ const cacheMiddleware = async (c: Context, next: Next) => {
         await cache.set(key, data, ttl);
 
         c.header("X-Cache", "MISS");
-
-        console.log(`💾 Cached response for ${key} (TTL: ${ttl}s)`);
       }
     }
   } catch (error) {

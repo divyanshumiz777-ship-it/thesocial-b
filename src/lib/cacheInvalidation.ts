@@ -51,6 +51,25 @@ export class CacheInvalidator {
     return sumDeleted(patterns);
   }
 
+  /**
+   * Follow-graph mutation (follow/unfollow/accept/reject, and block/unblock,
+   * which changes what the pair may see of each other). Evicts, for BOTH
+   * parties: their follow namespace (status/followers/following/mutual/
+   * suggested/mute, under any viewer's key) and their profile view
+   * (user-detail carries follower/following counts + privacy-gated fields).
+   */
+  static async invalidateFollowGraph(userA: string, userB: string) {
+    const patterns = [
+      `cache:*:/api/v1/follow/${userA}*`,
+      `cache:*:/api/v1/follow/${userB}*`,
+      `cache:${userA}:/api/v1/follow/*`,
+      `cache:${userB}:/api/v1/follow/*`,
+      `cache:*:/api/v1/user/user-detail/${userA}*`,
+      `cache:*:/api/v1/user/user-detail/${userB}*`,
+    ];
+    return sumDeleted(patterns);
+  }
+
   static async invalidateAll() {
     return cache.delPattern("cache:*");
   }
@@ -91,6 +110,13 @@ export async function invalidateAfterServerUpdate(serverId: string) {
 
 export async function invalidateAfterUserUpdate(userId: string) {
   await CacheInvalidator.invalidateUser(userId);
+}
+
+export async function invalidateAfterFollowChange(
+  userA: string,
+  userB: string,
+) {
+  await CacheInvalidator.invalidateFollowGraph(userA, userB);
 }
 
 export default CacheInvalidator;

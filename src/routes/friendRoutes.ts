@@ -14,6 +14,7 @@ import {
   getNicknames,
   setNickname,
   removeNickname,
+  getUserFriendsList,
 } from "../controllers/friendController.ts";
 
 const friendRoutes = new Hono();
@@ -33,5 +34,6 @@ friendRoutes.delete("/:friendId/nickname", removeNickname);
 friendRoutes.delete("/:friendId", removeFriend);
 friendRoutes.get("/user/:userId", getUserProfile);
 friendRoutes.get("/search/users", searchUsers);
+friendRoutes.get("/:userId/list", getUserFriendsList);
 
 export default friendRoutes;

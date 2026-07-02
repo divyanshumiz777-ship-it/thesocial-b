@@ -2,6 +2,8 @@ import { Context } from "hono";
 import { Reel } from "../models/Reel.ts";
 import { UserReelInteraction } from "../models/UserReelInteraction.ts";
 import { ReelComment } from "../models/ReelComment.ts";
+import User from "../models/User.ts";
+import Follow from "../models/Follow.ts";
 import { Types } from "mongoose";
 import { getIoInstance } from "../config/socket.ts";
 import {
@@ -14,14 +16,71 @@ import {
   isRecommendationServiceEnabled,
   fetchRecommendedFeed,
 } from "../lib/aiServiceClient.ts";
+import { canViewFullProfile } from "../lib/profilePrivacy.ts";
+import { canViewRelationships } from "./followController.ts";
 
-const broadcastReel = (reelId: string, event: string, payload: object) => {
+const MAX_PINNED_REELS = 3;
+
+const REDACTED_AUTHOR = { name: "Private User", profilePic: "", username: undefined };
+
+/**
+ * Redacts a populated user_id/creator_id ref to identity-only when the
+ * viewer can't see that author's full profile (private/friends/followers
+ * tiers). Keeps the same shape so existing frontend rendering doesn't branch.
+ */
+async function redactRestrictedAuthors<T extends { user_id?: any }>(
+  docs: T[],
+  viewerId: string,
+): Promise<T[]> {
+  const authorIds = Array.from(
+    new Set(
+      docs
+        .map((d) => d.user_id?._id?.toString())
+        .filter((id): id is string => !!id && id !== viewerId),
+    ),
+  );
+  if (authorIds.length === 0) return docs;
+
+  const [viewer, followingRows] = await Promise.all([
+    User.findById(viewerId).select("friends"),
+    Follow.find({
+      follower: viewerId,
+      followee: { $in: authorIds },
+      status: "accepted",
+    }).distinct("followee"),
+  ]);
+  const friendSet = new Set((viewer?.friends ?? []).map((f) => f.toString()));
+  const followingSet = new Set(followingRows.map((id) => id.toString()));
+
+  return docs.map((d) => {
+    const author = d.user_id;
+    const authorId = author?._id?.toString();
+    if (!author || !authorId || authorId === viewerId) return d;
+
+    const allowed = canViewFullProfile(author, {
+      viewerId,
+      isFriend: friendSet.has(authorId),
+      isFollower: followingSet.has(authorId),
+    });
+    if (allowed) return d;
+
+    return { ...d, user_id: { _id: author._id, ...REDACTED_AUTHOR } };
+  });
+}
+
+const broadcastToRoom = (room: string, event: string, payload: object) => {
   try {
-    getIoInstance().to(`reel:${reelId}`).emit(event, payload);
+    getIoInstance().to(room).emit(event, payload);
   } catch {
     // socket not initialised yet in tests / cold start — safe to ignore
   }
 };
+
+const broadcastReel = (reelId: string, event: string, payload: object) =>
+  broadcastToRoom(`reel:${reelId}`, event, payload);
+
+const broadcastCreator = (creatorId: string, event: string, payload: object) =>
+  broadcastToRoom(`creator:${creatorId}`, event, payload);
 
 const updateReelCount = async (
   reel_id: string,
@@ -263,6 +322,16 @@ export const createReel = async (c: Context) => {
 
     await reel.populate("creator_id", "name profilePic");
 
+    // Only worth telling followers about public reels — a private draft
+    // publishing shouldn't ping everyone who follows this creator.
+    if (reel.isPublic) {
+      broadcastCreator(creator_id, "creator:newReel", {
+        creatorId: creator_id,
+        reelId: reel._id.toString(),
+        thumbnail: reel.thumbnailUrl ?? "",
+      });
+    }
+
     return c.json({ message: "Reel created successfully", reel }, 201);
   } catch (error) {
     console.error("Error creating reel:", error);
@@ -293,31 +362,69 @@ export const getReelById = async (c: Context) => {
 export const getUserReels = async (c: Context) => {
   try {
     const { userId } = c.req.param();
-    const page = Number.parseInt(c.req.query("page") ?? "1", 10);
-    const limit = Number.parseInt(c.req.query("limit") ?? "20", 10);
+    const viewer = c.get("user");
+    const limit = Math.min(
+      Number.parseInt(c.req.query("limit") ?? "20", 10) || 20,
+      50,
+    );
+    const sort = c.req.query("sort") ?? "newest";
 
-    const skip = (page - 1) * limit;
+    // Cursor mode (opaque skip-offset token) takes precedence when present —
+    // this is what the infinite-scroll grid uses. Page mode is kept as-is for
+    // existing callers (e.g. the one-shot limit=50 fetch predating this).
+    const cursorParam = c.req.query("cursor");
+    const page = cursorParam ? null : Number.parseInt(c.req.query("page") ?? "1", 10);
+    const skip = cursorParam
+      ? Math.max(Number.parseInt(cursorParam, 10) || 0, 0)
+      : (page! - 1) * limit;
 
-    const reels = await Reel.find({
+    if (!(await canViewRelationships(userId, viewer.id))) {
+      return c.json(
+        {
+          restricted: true,
+          message:
+            "This creator's reels are not available due to their privacy settings.",
+          reels: [],
+          nextCursor: null,
+          pagination: { total: 0, page: page ?? 1, limit, pages: 0 },
+        },
+        200,
+      );
+    }
+
+    const filter = {
       creator_id: Types.ObjectId.createFromHexString(userId),
       isDeleted: false,
-    })
-      .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate("creator_id", "name profilePic");
+    };
 
-    const total = await Reel.countDocuments({
-      creator_id: Types.ObjectId.createFromHexString(userId),
-      isDeleted: false,
-    });
+    // Pinned reels always float to the top regardless of sort — matches
+    // Instagram's actual behavior (pinning isn't a separate filter mode).
+    const sortSpec: Record<string, 1 | -1> =
+      sort === "popular"
+        ? { isPinned: -1, viewCount: -1, shareCount: -1, likeCount: -1 }
+        : sort === "liked"
+          ? { isPinned: -1, likeCount: -1, created_at: -1 }
+          : { isPinned: -1, created_at: -1 };
+
+    const [reels, total] = await Promise.all([
+      Reel.find(filter)
+        .sort(sortSpec)
+        .skip(skip)
+        .limit(limit)
+        .populate("creator_id", "name profilePic"),
+      Reel.countDocuments(filter),
+    ]);
+
+    const hasMore = skip + reels.length < total;
 
     return c.json(
       {
+        restricted: false,
         reels,
+        nextCursor: hasMore ? String(skip + limit) : null,
         pagination: {
           total,
-          page,
+          page: page ?? Math.floor(skip / limit) + 1,
           limit,
           pages: Math.ceil(total / limit),
         },
@@ -327,6 +434,48 @@ export const getUserReels = async (c: Context) => {
   } catch (error) {
     console.error("Error fetching user reels:", error);
     return c.json({ error: "Failed to fetch user reels" }, 500);
+  }
+};
+
+export const togglePinReel = async (c: Context) => {
+  try {
+    const { reelId } = c.req.param();
+    const userId = c.get("user").id;
+
+    const reel = await Reel.findById(reelId);
+    if (!reel) return c.json({ error: "Reel not found" }, 404);
+    if (reel.creator_id.toString() !== userId) {
+      return c.json({ error: "Unauthorized to pin this reel" }, 403);
+    }
+
+    if (!reel.isPinned) {
+      const pinnedCount = await Reel.countDocuments({
+        creator_id: reel.creator_id,
+        isPinned: true,
+        isDeleted: false,
+      });
+      if (pinnedCount >= MAX_PINNED_REELS) {
+        return c.json(
+          { error: `You can pin up to ${MAX_PINNED_REELS} reels` },
+          400,
+        );
+      }
+      reel.isPinned = true;
+      reel.pinnedAt = new Date();
+    } else {
+      reel.isPinned = false;
+      reel.pinnedAt = undefined;
+    }
+
+    await reel.save();
+
+    return c.json({
+      message: reel.isPinned ? "Reel pinned" : "Reel unpinned",
+      isPinned: reel.isPinned,
+    });
+  } catch (error) {
+    console.error("Error toggling pin:", error);
+    return c.json({ error: "Failed to toggle pin" }, 500);
   }
 };
 
@@ -368,13 +517,15 @@ export const getComments = async (c: Context) => {
       .sort({ created_at: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("user_id", "name profilePic username");
+      .populate("user_id", "name profilePic username settings.privacy.profileVisibility");
 
     const total = await ReelComment.countDocuments({ reel_id: reelId, isDeleted: false, parentCommentId: null });
 
     const userObjId = new Types.ObjectId(userId);
-    const commentsWithMeta = comments.map((c: any) => ({
-      ...c.toObject(),
+    const plainComments = comments.map((c: any) => c.toObject());
+    const redacted = await redactRestrictedAuthors(plainComments, userId);
+    const commentsWithMeta = redacted.map((c: any) => ({
+      ...c,
       isLiked: c.likedBy.some((id: Types.ObjectId) => id.equals(userObjId)),
       isOwn: c.user_id._id.toString() === userId,
     }));

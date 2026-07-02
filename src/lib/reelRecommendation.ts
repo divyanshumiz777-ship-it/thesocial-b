@@ -1,6 +1,7 @@
 import { Reel } from "../models/Reel.ts";
 import { UserReelInteraction } from "../models/UserReelInteraction.ts";
 import { UserReelPreference } from "../models/UserReelPreference.ts";
+import Follow from "../models/Follow.ts";
 import { Types } from "mongoose";
 import { cache } from "./redis.ts";
 
@@ -54,14 +55,19 @@ export const getPersonalizedFeed = async (
       .limit(50);
 
     const tagFrequency: Record<string, number> = {};
-    const creatorIds = new Set<string>();
     const audioIds = new Set<string>();
 
-    userInteractions.forEach((interaction: any) => {
-      if (interaction.follow_creator) {
-        creatorIds.add(interaction.reel_id.toString());
-      }
-    });
+    // Real followed-creator signal (was previously derived from a boolean
+    // per-reel interaction flag and pushed the wrong id — reel_id instead of
+    // the creator's user id — into this set, so it never actually matched
+    // anything). Follow.ts now gives us the real graph.
+    const followedCreatorIds = await Follow.find({
+      follower: userObjId,
+      status: "accepted",
+    }).distinct("followee");
+    const creatorIds = new Set<string>(
+      followedCreatorIds.map((id) => id.toString()),
+    );
 
     const likedReels = await Reel.find({
       _id: {

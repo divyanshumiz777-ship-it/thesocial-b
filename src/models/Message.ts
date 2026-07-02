@@ -98,6 +98,7 @@ const MessageSchema = new Schema<IMessage>(
 MessageSchema.index({ server: 1, channel: 1, thread: 1, createdAt: -1 });
 MessageSchema.index({ plainText: "text", content: "text" });
 MessageSchema.index({ conversationId: 1, createdAt: -1 });
+MessageSchema.index({ conversationId: 1, _id: -1 });
 MessageSchema.index({ groupId: 1, createdAt: -1 });
 MessageSchema.index({ sender: 1, createdAt: -1 });
 MessageSchema.index({ pinned: 1, channel: 1 });

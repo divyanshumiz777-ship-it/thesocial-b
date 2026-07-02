@@ -19,6 +19,8 @@ export interface IReel extends Document {
   updated_at: Date;
   isPublic: boolean;
   isDeleted: boolean;
+  isPinned: boolean;
+  pinnedAt?: Date;
 }
 
 const ReelSchema = new Schema<IReel>({
@@ -94,10 +96,18 @@ const ReelSchema = new Schema<IReel>({
     default: false,
     index: true,
   },
+  isPinned: {
+    type: Boolean,
+    default: false,
+  },
+  pinnedAt: {
+    type: Date,
+  },
 });
 
 ReelSchema.index({ isDeleted: 1, created_at: -1 });
 ReelSchema.index({ creator_id: 1, isDeleted: 1 });
 ReelSchema.index({ tags: 1, language: 1 });
+ReelSchema.index({ creator_id: 1, isPinned: -1, created_at: -1 });
 
 export const Reel = mongoose.model<IReel>("Reel", ReelSchema);

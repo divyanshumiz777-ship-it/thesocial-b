@@ -227,6 +227,51 @@ async function startServer() {
         }
       });
 
+      // ── Creator rooms — followers join so profile updates/new reels
+      // broadcast live without a per-follower emit loop on the server side.
+      socket.on("join-creator", (creatorId: string) => {
+        try {
+          if (!creatorId) return;
+          socket.join(`creator:${creatorId}`);
+          joinedRooms.add(`creator:${creatorId}`);
+        } catch (err) {
+          console.error("join-creator error:", err);
+        }
+      });
+
+      socket.on("leave-creator", (creatorId: string) => {
+        try {
+          if (!creatorId) return;
+          socket.leave(`creator:${creatorId}`);
+          joinedRooms.delete(`creator:${creatorId}`);
+        } catch {
+          /* non-fatal */
+        }
+      });
+
+      // ── Following-list rooms — mirrors creator:${id} but for the opposite
+      // direction: someone watching userId's FOLLOWING list (not their
+      // followers) joins here so it updates live when userId follows/unfollows.
+      socket.on("join-following-list", (userId: string) => {
+        try {
+          if (!userId) return;
+          socket.join(`following-list:${userId}`);
+          joinedRooms.add(`following-list:${userId}`);
+        } catch (err) {
+          console.error("join-following-list error:", err);
+        }
+      });
+
+      socket.on("leave-following-list", (userId: string) => {
+        try {
+          if (!userId) return;
+          socket.leave(`following-list:${userId}`);
+          joinedRooms.delete(`following-list:${userId}`);
+        } catch {
+          /* non-fatal */
+        }
+      });
+
       // ── Typing indicators ───────────────────────────────────────────────────
 
       socket.on("typing", (channelId: string, userId: string) => {
@@ -399,28 +444,11 @@ async function startServer() {
         },
       );
 
-      socket.on(
-        "user:profile-updated",
-        (data: {
-          userId: string;
-          name?: string;
-          profilePic?: string;
-          about?: string;
-          timestamp: number;
-        }) => {
-          try {
-            io.emit("user:profile-changed", {
-              userId: data.userId,
-              name: data.name,
-              profilePic: data.profilePic,
-              about: data.about,
-              timestamp: data.timestamp,
-            });
-          } catch {
-            /* non-fatal */
-          }
-        },
-      );
+      // NOTE: profile-change broadcasting is server-authoritative (see
+      // lib/profileBroadcast.ts, called from updateProfile/editUser) — there
+      // is deliberately no client-emitted "user:profile-updated" relay here.
+      // A client-trusted relay would let any socket broadcast an arbitrary
+      // userId/profilePic pair as a "profile-changed" event for someone else.
 
       // ── WebRTC signalling ───────────────────────────────────────────────────
 

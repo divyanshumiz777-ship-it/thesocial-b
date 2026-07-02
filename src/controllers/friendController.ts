@@ -3,12 +3,15 @@ import User from "../models/User.ts";
 import FriendRequest from "../models/FriendRequest.ts";
 import Conversation from "../models/Conversation.ts";
 import FriendNickname from "../models/FriendNickname.ts";
+import Follow from "../models/Follow.ts";
+import { Reel } from "../models/Reel.ts";
 import mongoose from "mongoose";
 import { getIoInstance } from "../config/socket.ts";
 import {
   buildProfileView,
   getProfileVisibility,
 } from "../lib/profilePrivacy.ts";
+import { canViewRelationships } from "./followController.ts";
 
 export const sendFriendRequest = async (c: Context) => {
   try {
@@ -431,6 +434,11 @@ export const getUserProfile = async (c: Context) => {
     const isFriend = !!currentUser?.friends?.includes(
       new mongoose.Types.ObjectId(userId)
     );
+    const isFollower = !!(await Follow.exists({
+      follower: currentUserId,
+      followee: userId,
+      status: "accepted",
+    }));
 
     const pendingRequest = await FriendRequest.findOne({
       $or: [
@@ -443,6 +451,7 @@ export const getUserProfile = async (c: Context) => {
     const view = buildProfileView(userProfile, {
       viewerId: currentUserId,
       isFriend,
+      isFollower,
     });
 
     return c.json({
@@ -470,6 +479,7 @@ export const getUserProfile = async (c: Context) => {
 export const searchUsers = async (c: Context) => {
   try {
     const query = c.req.query("q");
+    const onlyCreators = c.req.query("onlyCreators") === "true";
     const user = c.get("user");
     const currentUserId = user.id;
 
@@ -488,6 +498,8 @@ export const searchUsers = async (c: Context) => {
     );
 
     // Part 9: blocked users (either direction) must not be findable/addable.
+    // Text index covers name/username/email/about (weighted), so "creator
+    // search by bio/topic" and @username search both land here.
     const users = await User.find(
       {
         $text: { $search: query },
@@ -497,17 +509,42 @@ export const searchUsers = async (c: Context) => {
       { score: { $meta: "textScore" } }
     )
       .sort({ score: { $meta: "textScore" } })
-      .select("name email profilePic lastSeen about customStatus settings")
-      .limit(20);
+      .select("name username email profilePic lastSeen about verified customStatus settings")
+      .limit(onlyCreators ? 60 : 20);
+
+    const creatorIds = new Set(
+      (
+        await Reel.distinct("creator_id", {
+          creator_id: { $in: users.map((u) => u._id) },
+          isDeleted: { $ne: true },
+        })
+      ).map((id) => id.toString())
+    );
+
+    const filteredUsers = onlyCreators
+      ? users.filter((u) => creatorIds.has(u._id.toString())).slice(0, 20)
+      : users;
+
+    const myFollowingIds = new Set(
+      (
+        await Follow.find({
+          follower: currentUserId,
+          followee: { $in: filteredUsers.map((u) => u._id) },
+          status: "accepted",
+        }).distinct("followee")
+      ).map((id) => id.toString())
+    );
 
     // Respect each result's profile visibility. Restricted users still appear
     // (identity only) so they remain findable for friend requests.
-    const view = users.map((u) =>
-      buildProfileView(u, {
+    const view = filteredUsers.map((u) => ({
+      ...buildProfileView(u, {
         viewerId: currentUserId,
         isFriend: friendIds.has(u._id.toString()),
-      })
-    );
+        isFollower: myFollowingIds.has(u._id.toString()),
+      }),
+      isCreator: creatorIds.has(u._id.toString()),
+    }));
 
     return c.json({
       count: view.length,
@@ -568,5 +605,47 @@ export const removeNickname = async (c: Context) => {
     return c.json({ success: true });
   } catch {
     return c.json({ error: "Failed to remove nickname" }, 500);
+  }
+};
+
+/** View another user's friends — the "View Friends" profile action.
+ * Privacy-gated the same way as followers/following/reels. Excludes any
+ * friend with a block relationship (either direction) with the viewer,
+ * matching how the codebase already treats blocking as an absolute
+ * boundary everywhere else (searchUsers, getAllUsers, community members). */
+export const getUserFriendsList = async (c: Context) => {
+  try {
+    const targetId = c.req.param("userId");
+    const viewer = c.get("user");
+    if (!targetId || !mongoose.Types.ObjectId.isValid(targetId)) {
+      return c.json({ error: "Invalid user ID" }, 400);
+    }
+
+    if (!(await canViewRelationships(targetId, viewer.id))) {
+      return c.json({ error: "This account's friends are private" }, 403);
+    }
+
+    const target = await User.findById(targetId).select("friends");
+    if (!target) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const viewerDoc = await User.findById(viewer.id).select("blockedUsers");
+    const viewerBlocked = new Set(
+      (viewerDoc?.blockedUsers ?? []).map((b) => b.toString())
+    );
+    const friendIds = (target.friends ?? []).filter(
+      (id) => !viewerBlocked.has(id.toString())
+    );
+
+    const friends = await User.find({
+      _id: { $in: friendIds },
+      blockedUsers: { $ne: viewer.id }, // exclude friends who blocked the viewer
+    }).select("name username profilePic about verified");
+
+    return c.json({ friends });
+  } catch (error) {
+    console.error("Error fetching user friends list:", error);
+    return c.json({ error: "Failed to fetch friends list" }, 500);
   }
 };

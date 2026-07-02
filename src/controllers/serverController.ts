@@ -268,6 +268,7 @@ export const createServer = async (
 
 export const getServerById = async (c: Context) => {
   const { id: serverId } = c.req.param();
+  const viewer = c.get("user");
 
   try {
     if (!mongoose.Types.ObjectId.isValid(serverId)) {
@@ -276,23 +277,37 @@ export const getServerById = async (c: Context) => {
 
     logger.debug({ serverId }, "getServerById: querying server");
 
-    const [server, serverMembers] = await Promise.all([
-      DiscordServer.findById(serverId)
-        .populate({ path: "owner", select: "name profilePic" })
-        .populate({
-          path: "categories",
-          populate: { path: "channels", model: "Channel" },
-        })
-        .lean(),
-      ServerMember.find({ server: serverId })
-        .populate("user", "name profilePic")
-        .lean(),
-    ]);
+    const [server, serverMembersRaw, viewerBlocked, blockedByOthers] =
+      await Promise.all([
+        DiscordServer.findById(serverId)
+          .populate({ path: "owner", select: "name profilePic" })
+          .populate({
+            path: "categories",
+            populate: { path: "channels", model: "Channel" },
+          })
+          .lean(),
+        ServerMember.find({ server: serverId })
+          .populate("user", "name profilePic")
+          .lean(),
+        User.findById(viewer?.id).select("blockedUsers").lean(),
+        // Both directions, matching the block-enforcement convention used by
+        // searchUsers/getAllUsers: a blocked relationship hides you from each
+        // other everywhere, including shared community member lists.
+        User.find({ blockedUsers: viewer?.id }, "_id").lean(),
+      ]);
 
     if (!server) {
       logger.warn({ serverId }, "getServerById: server not found");
       return c.json({ message: "Server not found" }, 404);
     }
+
+    const hiddenUserIds = new Set<string>([
+      ...(viewerBlocked?.blockedUsers ?? []).map((u) => u.toString()),
+      ...blockedByOthers.map((u) => u._id.toString()),
+    ]);
+    const serverMembers = serverMembersRaw.filter(
+      (m: any) => !hiddenUserIds.has(m.user?._id?.toString())
+    );
 
     const cats = (server.categories as unknown) as Array<{ _id: unknown; name?: string; channels: unknown[] }>;
     logger.debug(

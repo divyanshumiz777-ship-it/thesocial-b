@@ -98,14 +98,88 @@ import {
   getProfileVisibility,
   redactedProfileView,
   fullProfileView,
+  buildProfileView,
 } from "../lib/profilePrivacy.ts";
 import {
   createNotification,
   sendNotificationViaSocket,
 } from "./notificationController.ts";
-import { getIoInstance } from "../config/socket.ts";
 import { invalidateAfterUserUpdate } from "../lib/cacheInvalidation.ts";
+import { broadcastProfileChange } from "../lib/profileBroadcast.ts";
 import ServerMember from "../models/ServerMember.ts";
+import Follow from "../models/Follow.ts";
+import { Reel } from "../models/Reel.ts";
+import { canViewRelationships } from "./followController.ts";
+import { redactParticipant } from "../lib/dmFormatting.ts";
+
+function computeCreatorLevel(followerCount: number): string {
+  if (followerCount >= 10000) return "Top Creator";
+  if (followerCount >= 1000) return "Established Creator";
+  if (followerCount >= 100) return "Rising Creator";
+  return "New Creator";
+}
+
+/** Aggregate creator/social stats shown on a profile — always computed,
+ * regardless of privacy restriction (follower/following/post counts are
+ * shown even on locked profiles, matching the convention every mainstream
+ * social platform uses; the underlying content itself stays gated). */
+async function getCreatorStats(targetId: string, viewerId: string | null) {
+  const targetObjId = new mongoose.Types.ObjectId(targetId);
+
+  const [followerCount, followingCount, reelAgg, target] = await Promise.all([
+    Follow.countDocuments({ followee: targetId, status: "accepted" }),
+    Follow.countDocuments({ follower: targetId, status: "accepted" }),
+    Reel.aggregate([
+      { $match: { creator_id: targetObjId, isDeleted: false } },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          totalLikes: { $sum: "$likeCount" },
+          totalViews: { $sum: "$viewCount" },
+        },
+      },
+    ]),
+    User.findById(targetId).select("servers friends"),
+  ]);
+
+  const reelCount = reelAgg[0]?.count ?? 0;
+  const isCreator = reelCount > 0;
+
+  let mutualFriendsCount = 0;
+  let mutualCommunitiesCount = 0;
+  if (viewerId && viewerId !== targetId && target) {
+    const viewer = await User.findById(viewerId).select("servers friends");
+    if (viewer) {
+      const targetFriendSet = new Set(
+        (target.friends ?? []).map((f) => f.toString())
+      );
+      mutualFriendsCount = (viewer.friends ?? []).filter((f) =>
+        targetFriendSet.has(f.toString())
+      ).length;
+
+      const targetServerSet = new Set(
+        (target.servers ?? []).map((s) => s.toString())
+      );
+      mutualCommunitiesCount = (viewer.servers ?? []).filter((s) =>
+        targetServerSet.has(s.toString())
+      ).length;
+    }
+  }
+
+  return {
+    followerCount,
+    followingCount,
+    reelCount,
+    totalLikes: reelAgg[0]?.totalLikes ?? 0,
+    totalViews: reelAgg[0]?.totalViews ?? 0,
+    communitiesJoinedCount: target?.servers?.length ?? 0,
+    mutualFriendsCount,
+    mutualCommunitiesCount,
+    isCreator,
+    creatorLevel: isCreator ? computeCreatorLevel(followerCount) : null,
+  };
+}
 
 export const getAllUsers = async (c: Context) => {
   try {
@@ -125,20 +199,29 @@ export const getAllUsers = async (c: Context) => {
         blockedUsers: { $ne: authId },
       });
 
+      const myFollowingIds = new Set(
+        (
+          await Follow.find({
+            follower: authId,
+            followee: { $in: users.map((u) => u._id) },
+            status: "accepted",
+          }).distinct("followee")
+        ).map((id) => id.toString())
+      );
+
+      // Uses the same buildProfileView pipeline as getUser/getUserProfile/
+      // searchUsers so "friends"/"followers"/"private" are all honoured
+      // consistently (previously this only redacted "private", leaving
+      // "friends"-only profiles fully exposed to non-friend viewers here).
       const enriched = users.map((u) => {
         const isFriend = friendSet.has(String(u._id));
-        // Part 10: honour profile visibility. Private non-friends are
-        // identity-only (no email/avatar), via the same rule as the helper.
-        const restricted =
-          getProfileVisibility(u) === "private" && !isFriend;
-        return {
-          _id: u._id,
-          name: u.name,
-          email: restricted ? "" : u.email,
-          profilePic: restricted ? "" : u.profilePic,
-          lastSeen: u.lastSeen,
+        const isFollower = myFollowingIds.has(String(u._id));
+        const view = buildProfileView(u, {
+          viewerId: authId,
           isFriend,
-        };
+          isFollower,
+        });
+        return { ...view, isFriend };
       });
 
       if (enriched.length === 0) {
@@ -189,22 +272,32 @@ export const getUser = async (c: Context) => {
     }
 
     let isFriend = false;
+    let isFollower = false;
     if (viewerId && viewerId !== id) {
       const viewer = await User.findById(viewerId).select("friends");
       isFriend = !!viewer?.friends?.some((f) => f.toString() === id);
+      isFollower = !!(await Follow.exists({
+        follower: viewerId,
+        followee: id,
+        status: "accepted",
+      }));
     }
 
     const visibility = getProfileVisibility(user);
+    const stats = await getCreatorStats(id, viewerId);
 
-    if (canViewFullProfile(user, { viewerId, isFriend })) {
+    if (canViewFullProfile(user, { viewerId, isFriend, isFollower })) {
       // Curated view only — never return the raw Mongoose doc, which would
       // leak friends/blockedUsers/settings/providerAccountId/reset tokens.
-      return c.json({ user: fullProfileView(user), restricted: false, visibility }, 200);
+      return c.json(
+        { user: { ...fullProfileView(user), stats }, restricted: false, visibility },
+        200
+      );
     }
 
-    // Restricted: identity only.
+    // Restricted: identity only, plus the always-visible aggregate counts.
     return c.json(
-      { user: redactedProfileView(user), restricted: true, visibility },
+      { user: { ...redactedProfileView(user), stats }, restricted: true, visibility },
       200
     );
   } catch (error) {
@@ -327,9 +420,18 @@ export const editUser = async (c: Context) => {
       return c.json({ message: "No such user exists" }, 404);
     }
     if (name) user.name = name;
-    await user.save();
     if (profilePic) user.profilePic = profilePic;
     await user.save();
+
+    // Same authoritative broadcast as updateProfile so this alternate write
+    // path can't silently leave other viewers stale.
+    broadcastProfileChange({
+      _id: user._id,
+      name: user.name,
+      profilePic: user.profilePic,
+      // @ts-ignore - about field exists but not in the User type
+      about: user.about,
+    });
 
     await invalidateAfterUserUpdate(id);
     return c.json({ message: "User updated successfully", user }, 200);
@@ -543,6 +645,42 @@ export const userServers = async (c: Context) => {
   }
 };
 
+/** View another user's PUBLIC communities — the "View Communities" profile
+ * action. Privacy-gated the same way as followers/following/reels; ALSO only
+ * ever returns publicly-visible communities regardless of profile privacy,
+ * since community visibility is a separate, stricter axis than profile
+ * visibility — a public profile shouldn't leak private server membership. */
+export const getUserCommunities = async (c: Context) => {
+  try {
+    const { id: targetId } = c.req.param();
+    const viewer = c.get("user");
+    if (!targetId || !mongoose.Types.ObjectId.isValid(targetId)) {
+      return c.json({ error: "Invalid user ID" }, 400);
+    }
+
+    if (!(await canViewRelationships(targetId, viewer.id))) {
+      return c.json({ error: "This account's communities are private" }, 403);
+    }
+
+    const target = await User.findById(targetId).select("servers");
+    if (!target) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const communities = await DiscordServer.find({
+      _id: { $in: target.servers ?? [] },
+      visibility: "public",
+    })
+      .select("name description imageUrl visibility")
+      .lean();
+
+    return c.json({ communities });
+  } catch (error) {
+    console.error("Error fetching user communities:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
 export const getUserConversations = async (c: Context) => {
   const { id } = c.get("user");
 
@@ -648,16 +786,9 @@ export const getUserConversations = async (c: Context) => {
 
         // Redact profilePic for participants who set visibility to "private".
         // "friends" accounts are fine — DM contacts are effectively friends.
-        const redactedParticipants = (conv.participants as any[]).map((p) => {
-          const visibility = p?.settings?.privacy?.profileVisibility;
-          return {
-            _id: p._id,
-            name: p.name,
-            email: p.email,
-            profilePic: visibility === "private" ? "" : (p.profilePic ?? ""),
-            lastSeen: p.lastSeen,
-          };
-        });
+        const redactedParticipants = (conv.participants as any[]).map(
+          redactParticipant
+        );
 
         return {
           _id: conv._id,
@@ -737,21 +868,17 @@ export const updateProfile = async (c: Context) => {
 
     await user.save();
 
-    const io = getIoInstance();
-    if (io) {
-      io.to(String(user._id)).emit("user:profile-changed", {
-        userId: String(user._id),
-        name: user.name,
-        profilePic: user.profilePic,
-        // @ts-ignore
-        about: user.about,
-        timestamp: Date.now(),
-      });
-      console.log("Profile update broadcasted via socket:", {
-        userId: String(user._id),
-        name: user.name,
-      });
-    }
+    // Authoritative, server-side global broadcast — reaches every connected
+    // viewer regardless of the editor's own socket state or which surface
+    // shows the avatar. Replaces the old self-room-only emit + the fragile
+    // client re-emit in MyProfileEditor.
+    broadcastProfileChange({
+      _id: user._id,
+      name: user.name,
+      profilePic: user.profilePic,
+      // @ts-ignore - about field exists but not in the User type
+      about: user.about,
+    });
 
     await invalidateAfterUserUpdate(id);
     return c.json(
