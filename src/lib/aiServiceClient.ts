@@ -38,6 +38,8 @@ export interface InternalCallOptions {
   userId?: string;
   /** Per-request timeout in milliseconds. */
   timeoutMs?: number;
+  /** Retries for transient upstream failures (Render cold starts, 502/503/504). */
+  retries?: number;
 }
 
 export interface InternalCallResult<T> {
@@ -108,9 +110,13 @@ export async function callInternalService<T = unknown>(
     return { ok: false, status: 0, data: null, error: "circuit open" };
   }
 
-  const { method = "POST", body, userId, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const {
+    method = "POST",
+    body,
+    userId,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    retries = 0,
+  } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -118,47 +124,71 @@ export async function callInternalService<T = unknown>(
   };
   if (userId) headers["X-User-Id"] = userId;
 
-  try {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method,
-      headers,
-      body:
-        method === "POST" && body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
+  let lastResult: InternalCallResult<T> = {
+    ok: false,
+    status: 0,
+    data: null,
+    error: "request not attempted",
+  };
 
-    let data: T | null = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      data = (await response.json()) as T;
-    } catch {
-      data = null;
+      const response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers,
+        body:
+          method === "POST" && body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+
+      let data: T | null = null;
+      try {
+        data = (await response.json()) as T;
+      } catch {
+        data = null;
+      }
+
+      if (response.ok) {
+        recordSuccess(baseUrl);
+        logger.debug(
+          { method, baseUrl, path, status: response.status, attempt },
+          "ai service call OK"
+        );
+        return { ok: true, status: response.status, data };
+      }
+
+      lastResult = {
+        ok: false,
+        status: response.status,
+        data,
+        error: `upstream status ${response.status}`,
+      };
+
+      logger.warn(
+        { method, baseUrl, path, status: response.status, body: data, attempt },
+        "ai service call returned non-2xx"
+      );
+
+      if (![502, 503, 504].includes(response.status) || attempt === retries) {
+        break;
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      lastResult = { ok: false, status: 0, data: null, error: message };
+      logger.warn({ baseUrl, path, error: message, attempt }, "ai service call failed");
+      if (attempt === retries) break;
+    } finally {
+      clearTimeout(timer);
     }
 
-    if (response.ok) {
-      recordSuccess(baseUrl);
-      logger.debug({ method, baseUrl, path, status: response.status }, "ai service call OK");
-      return { ok: true, status: response.status, data };
-    }
-
-    recordFailure(baseUrl);
-    logger.warn(
-      { method, baseUrl, path, status: response.status, body: data },
-      "ai service call returned non-2xx"
-    );
-    return {
-      ok: false,
-      status: response.status,
-      data,
-      error: `upstream status ${response.status}`,
-    };
-  } catch (error: unknown) {
-    recordFailure(baseUrl);
-    const message = error instanceof Error ? error.message : "unknown error";
-    logger.warn({ baseUrl, path, error: message }, "ai service call failed");
-    return { ok: false, status: 0, data: null, error: message };
-  } finally {
-    clearTimeout(timer);
+    await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
   }
+
+  recordFailure(baseUrl);
+  return lastResult;
 }
 
 /**
