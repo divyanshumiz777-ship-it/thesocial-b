@@ -14,42 +14,38 @@ import { callInternalService, aiServiceConfig } from "./aiServiceClient.ts";
 const CHAT_URL = aiServiceConfig.chatUrl;
 
 /**
- * Timeouts tuned per operation — chat waits longer for Gemini generation.
- *
  * The chat service runs on Render's free tier, which spins the instance down
- * after ~15 minutes idle. Measured directly against production: a cold
- * instance took 32s to answer its OWN /health check, and a fast ~200ms 502
- * (from Render's edge, not a hang) is what callers actually see while it's
- * still booting — confirmed from production logs. That means a longer
- * per-attempt timeout does nothing here (each attempt already returns near-
- * instantly, just with an error status); what survives a cold start is
- * retrying with backoff SPACED far enough apart to land an attempt after
- * the boot finishes. Timeouts below are just a safety ceiling per attempt;
- * retryDelayMs is what actually rides out the cold start.
- */
-const CHAT_TIMEOUT_MS = 15_000;
-const SEARCH_TIMEOUT_MS = 12_000;
-const CONV_TIMEOUT_MS = 10_000;
-
-/**
- * retries=3 + retryDelayMs=10s → backoff of 10s/20s/30s (60s cumulative
- * worst case across 4 attempts).
+ * after ~15 minutes idle. A cold start has been observed in production in TWO
+ * distinct shapes, and a robust config has to survive both:
  *
- * This used to be split into a generous budget for chat and a shorter one
- * (2 retries / 8s) for search/capabilities/conversations, on the theory
- * that those back lighter-weight UI surfaces. Confirmed wrong from a real
- * production log: capabilities hit exactly 3 attempts (0s, +8s, +16s — the
- * old light-tier timing) and still gave up at ~24s cumulative, while a
- * direct /health check against the same cold instance took 32s to respond.
- * Cold-start duration is a property of the SERVICE, not which endpoint you
- * happen to call — giving capabilities a shorter runway than chat doesn't
- * reduce its odds of hitting a cold start, it just makes it give up earlier
- * into the exact same cold-start window chat would still be waiting out.
- * One shared, generous retry/backoff budget for every endpoint now; only
- * the per-attempt TIMEOUT stays differentiated (chat's own generation can
- * legitimately take longer once warm than a search/capabilities lookup).
+ *   1. FAST-502: Render's edge instantly rejects with a ~200ms 502 while the
+ *      instance is spun down. Each attempt fails near-instantly, so the
+ *      per-attempt timeout is irrelevant here — what rides this out is
+ *      RETRIES with backoff spaced far enough apart that a later attempt
+ *      lands after the boot completes.
+ *
+ *   2. HANG: Render's edge instead HOLDS the request open during boot and
+ *      only responds once the service is ready. Here the binding constraint
+ *      is the per-attempt TIMEOUT — a short timeout aborts the held request
+ *      mid-boot (well before the ~32s+ boot finishes) and no amount of
+ *      retrying helps, because every attempt gets killed before the service
+ *      can answer. Confirmed from a production log where 10-15s timeouts
+ *      aborted every attempt across ~100s while a direct /health check on
+ *      the same instance answered in ~1s once warm, and the internal
+ *      endpoints returned full data once warm — i.e. not a service bug, just
+ *      a boot slower than the timeout.
+ *
+ * So: a GENEROUS per-attempt timeout (rides out a held request through cold
+ * boot in a single attempt — mode 2) PLUS retries with backoff (spans the
+ * boot when attempts fast-fail — mode 1). Cold-boot duration is a property
+ * of the SERVICE, not the endpoint, so the timeout is uniform across all
+ * endpoints rather than differentiated — a warm capabilities/search/conv
+ * call still returns in a few seconds; the 60s is only the ceiling for the
+ * cold-boot-held case. The circuit breaker in aiServiceClient.ts caps the
+ * aggregate cost if the service is genuinely down (opens after 8 failures).
  */
-const RETRIES = 3;
+const REQUEST_TIMEOUT_MS = 60_000;
+const RETRIES = 2;
 const RETRY_DELAY_MS = 10_000;
 
 // ── Response type definitions ─────────────────────────────────────────────────
@@ -132,7 +128,7 @@ export async function forwardChat(
       method: "POST",
       body: { user_id: userId, ...body },
       userId,
-      timeoutMs: CHAT_TIMEOUT_MS,
+      timeoutMs: REQUEST_TIMEOUT_MS,
       retries: RETRIES,
       retryDelayMs: RETRY_DELAY_MS,
     }
@@ -151,7 +147,7 @@ export async function forwardSearch(
       method: "POST",
       body: { user_id: userId, ...body },
       userId,
-      timeoutMs: SEARCH_TIMEOUT_MS,
+      timeoutMs: REQUEST_TIMEOUT_MS,
       retries: RETRIES,
       retryDelayMs: RETRY_DELAY_MS,
     }
@@ -165,7 +161,7 @@ export async function forwardGetConversations(
   const result = await callInternalService<ConversationsResponse>(
     CHAT_URL,
     "/internal/v1/conversations",
-    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
+    { method: "GET", userId, timeoutMs: REQUEST_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
   );
   return result.ok && result.data ? result.data : null;
 }
@@ -177,7 +173,7 @@ export async function forwardGetConversation(
   const result = await callInternalService<ConversationResponse>(
     CHAT_URL,
     `/internal/v1/conversations/${conversationId}`,
-    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
+    { method: "GET", userId, timeoutMs: REQUEST_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
   );
   return result.ok && result.data ? result.data : null;
 }
@@ -188,7 +184,7 @@ export async function forwardGetCapabilities(
   const result = await callInternalService<CapabilitiesResponse>(
     CHAT_URL,
     "/internal/v1/capabilities",
-    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
+    { method: "GET", userId, timeoutMs: REQUEST_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
   );
   return result.ok && result.data ? result.data : null;
 }
