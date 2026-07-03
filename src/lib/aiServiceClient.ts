@@ -25,8 +25,15 @@ const REC_SERVICE_ENABLED =
 /** Default per-request timeout (ms). Feed calls will use a tighter budget. */
 const DEFAULT_TIMEOUT_MS = 2000;
 
-/** Circuit breaker tuning. */
-const FAILURE_THRESHOLD = 5; // consecutive failures before opening
+/**
+ * Circuit breaker tuning. Threshold raised from 5→8: a single Render
+ * free-tier cold start can produce a burst of near-simultaneous 502s across
+ * several unrelated user requests (each one still only counts once here,
+ * since callInternalService's own internal retries resolve to a single
+ * success/failure per logical call) — 8 gives per-call retries more room to
+ * actually land a success before the breaker starts skipping calls outright.
+ */
+const FAILURE_THRESHOLD = 8; // consecutive failures before opening
 const OPEN_DURATION_MS = 30_000; // stay open this long before a half-open retry
 
 export interface InternalCallOptions {
@@ -40,6 +47,15 @@ export interface InternalCallOptions {
   timeoutMs?: number;
   /** Retries for transient upstream failures (Render cold starts, 502/503/504). */
   retries?: number;
+  /**
+   * Base backoff between retries, in ms — actual delay is retryDelayMs *
+   * (attempt + 1). Defaults to 500ms, right for latency-sensitive callers
+   * (the feed's 250ms budget) that want to fail fast to their fallback.
+   * A Render free-tier cold start surfaces as a FAST 502 (not a hang) for
+   * the ~20-40s the instance takes to boot, so surviving one needs backoff
+   * long enough to span that window, not a longer per-attempt timeout.
+   */
+  retryDelayMs?: number;
 }
 
 export interface InternalCallResult<T> {
@@ -116,6 +132,7 @@ export async function callInternalService<T = unknown>(
     userId,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     retries = 0,
+    retryDelayMs = 500,
   } = options;
 
   const headers: Record<string, string> = {
@@ -184,7 +201,7 @@ export async function callInternalService<T = unknown>(
       clearTimeout(timer);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs * (attempt + 1)));
   }
 
   recordFailure(baseUrl);
