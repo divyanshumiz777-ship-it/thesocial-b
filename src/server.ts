@@ -9,6 +9,7 @@ const { verify } = jwt;
 import { connectDB } from "./config/db.ts";
 import { setIoInstance } from "./config/socket.ts";
 import app from "./app.ts";
+import User from "./models/User.ts";
 
 /**
  * server.ts — production-grade server bootstrap.
@@ -49,6 +50,20 @@ import app from "./app.ts";
  *
  * 7. ERROR HANDLING: unhandled promise rejections from socket handlers can
  *    crash the process. Each socket handler is wrapped in try/catch.
+ *
+ * 8. PRESENCE GRACE PERIOD (P0 realtime fix): markOffline used to broadcast
+ *    presence:update{online:false} synchronously and unconditionally on
+ *    every disconnect, with zero debounce — any transient disconnect
+ *    (network blip, or a client-side reconnect racing its own new
+ *    connection ahead of the old one's disconnect event) produced a real,
+ *    wire-visible false "offline" broadcast to every client. Offline is now
+ *    only broadcast after a grace period with no reconnect, and is cancelled
+ *    if any new socket for that user connects first. lastSeen is persisted
+ *    to Mongo only once the grace period actually elapses.
+ *
+ * 9. REDIS ADAPTER ERROR HANDLING: pubClient/subClient had no 'error'
+ *    listener, unlike lib/redis.ts's own client — an EventEmitter that
+ *    emits 'error' with zero listeners throws synchronously. Guarded now.
  */
 
 async function startServer() {
@@ -79,6 +94,12 @@ async function startServer() {
     if (process.env.REDIS_URL) {
       const pubClient = new Redis(process.env.REDIS_URL);
       const subClient = pubClient.duplicate();
+      pubClient.on("error", (err) =>
+        console.error("Redis adapter pubClient error:", err),
+      );
+      subClient.on("error", (err) =>
+        console.error("Redis adapter subClient error:", err),
+      );
       io.adapter(createAdapter(pubClient, subClient));
     }
 
@@ -98,8 +119,25 @@ async function startServer() {
 
     // ── Shared state ─────────────────────────────────────────────────────────
 
-    /** userId → number of connected sockets (multi-tab support) */
-    const onlineUsers = new Map<string, number>();
+    type PresenceStatus = "online" | "idle" | "dnd";
+
+    interface PresenceEntry {
+      /** number of connected sockets for this user (multi-tab/device support) */
+      count: number;
+      status: PresenceStatus;
+      /** pending "broadcast offline" timer, cancelled on reconnect within the grace period */
+      offlineTimer: ReturnType<typeof setTimeout> | null;
+    }
+
+    /** userId → presence entry. Never marks offline immediately — see markOffline. */
+    const onlineUsers = new Map<string, PresenceEntry>();
+
+    /** How long to wait after a user's last socket disconnects before
+     * broadcasting them offline. Covers transient network drops, page
+     * refreshes, and (now largely eliminated, but kept as defense in depth)
+     * a client-side reconnect whose new "connect" hasn't landed yet when the
+     * old socket's "disconnect" is processed. */
+    const OFFLINE_GRACE_MS = 45_000;
 
     /** `${roomId}-${userId}` → timeout handle for auto-stop-typing */
     const typingTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
@@ -113,23 +151,51 @@ async function startServer() {
     };
 
     const markOnline = (userId: string) => {
-      const prev = onlineUsers.get(userId) ?? 0;
-      onlineUsers.set(userId, prev + 1);
-      if (prev === 0) {
-        // First socket for this user — broadcast online
-        io.emit("presence:update", { userId, online: true, ts: Date.now() });
+      const entry = onlineUsers.get(userId);
+      if (entry) {
+        // Another tab/device for the same user, or a reconnect that beat
+        // the grace-period timer — cancel any pending offline broadcast.
+        if (entry.offlineTimer) {
+          clearTimeout(entry.offlineTimer);
+          entry.offlineTimer = null;
+        }
+        entry.count += 1;
+        return;
       }
+      onlineUsers.set(userId, { count: 1, status: "online", offlineTimer: null });
+      io.emit("presence:update", {
+        userId,
+        online: true,
+        status: "online",
+        ts: Date.now(),
+      });
     };
 
     const markOffline = (userId: string) => {
-      const prev = onlineUsers.get(userId) ?? 0;
-      const next = Math.max(0, prev - 1);
-      if (next === 0) {
+      const entry = onlineUsers.get(userId);
+      if (!entry) return;
+      entry.count = Math.max(0, entry.count - 1);
+      if (entry.count > 0) return;
+
+      // Last known socket for this user just disconnected. Don't broadcast
+      // offline yet — give them OFFLINE_GRACE_MS to reconnect (refresh,
+      // brief network drop) before treating this as a genuine transition.
+      if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
+      entry.offlineTimer = setTimeout(async () => {
         onlineUsers.delete(userId);
-        io.emit("presence:update", { userId, online: false, ts: Date.now() });
-      } else {
-        onlineUsers.set(userId, next);
-      }
+        const lastSeen = new Date();
+        io.emit("presence:update", {
+          userId,
+          online: false,
+          ts: lastSeen.getTime(),
+          lastSeen: lastSeen.toISOString(),
+        });
+        try {
+          await User.findByIdAndUpdate(userId, { lastSeen });
+        } catch (err) {
+          console.error("Failed to persist lastSeen on offline:", err);
+        }
+      }, OFFLINE_GRACE_MS);
     };
 
     // ── Connection handler ────────────────────────────────────────────────────
@@ -165,11 +231,56 @@ async function startServer() {
       try {
         socket.emit("presence:snapshot", {
           onlineUserIds: Array.from(onlineUsers.keys()),
+          statuses: Object.fromEntries(
+            Array.from(onlineUsers.entries()).map(([uid, entry]) => [
+              uid,
+              entry.status,
+            ]),
+          ),
           ts: Date.now(),
         });
       } catch {
         /* non-fatal */
       }
+
+      // ── App-level heartbeat ─────────────────────────────────────────────────
+      //
+      // Socket.IO's own ping/pong (pingInterval/pingTimeout above) already
+      // detects dead transports. This exists as an explicit, app-level
+      // liveness signal for future analytics/monitoring hooks and as a
+      // second line of defense in environments where an intermediary proxy
+      // interferes with WS-level control frames but passes data frames.
+      socket.on("client:heartbeat", () => {
+        /* liveness signal only; no state to update today */
+      });
+
+      // ── Self-reported presence status (online/idle/dnd) ─────────────────────
+      //
+      // Client-driven activity/visibility detection (SocketProvider) reports
+      // "online"/"idle"; a manual "Do Not Disturb" toggle (not yet wired to
+      // any UI) can report "dnd" through the same channel. This never
+      // affects the online/offline connection-count bookkeeping above —
+      // only the status shown alongside "online".
+      socket.on(
+        "presence:self-status",
+        (data: { status: PresenceStatus }) => {
+          try {
+            const entry = onlineUsers.get(connectedUserId);
+            if (!entry) return;
+            if (!["online", "idle", "dnd"].includes(data?.status)) return;
+            if (entry.status === data.status) return;
+            entry.status = data.status;
+            io.emit("presence:update", {
+              userId: connectedUserId,
+              online: true,
+              status: entry.status,
+              ts: Date.now(),
+            });
+          } catch {
+            /* non-fatal */
+          }
+        },
+      );
 
       // ── Room joins ──────────────────────────────────────────────────────────
 
