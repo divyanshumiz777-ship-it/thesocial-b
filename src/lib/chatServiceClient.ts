@@ -31,16 +31,26 @@ const CHAT_TIMEOUT_MS = 15_000;
 const SEARCH_TIMEOUT_MS = 12_000;
 const CONV_TIMEOUT_MS = 10_000;
 
-/** retries=3 + retryDelayMs=10s → backoff of 10s/20s/30s (60s cumulative
- * worst case across 4 attempts) — comfortably spans the observed 32s cold
- * boot, so at least one attempt lands after the instance is warm. Chat gets
- * the full budget since users already expect to wait for an AI answer;
- * search/capabilities/conversations get a shorter one since they back
- * lighter-weight UI surfaces. */
-const CHAT_RETRIES = 3;
-const CHAT_RETRY_DELAY_MS = 10_000;
-const LIGHT_RETRIES = 2;
-const LIGHT_RETRY_DELAY_MS = 8_000;
+/**
+ * retries=3 + retryDelayMs=10s → backoff of 10s/20s/30s (60s cumulative
+ * worst case across 4 attempts).
+ *
+ * This used to be split into a generous budget for chat and a shorter one
+ * (2 retries / 8s) for search/capabilities/conversations, on the theory
+ * that those back lighter-weight UI surfaces. Confirmed wrong from a real
+ * production log: capabilities hit exactly 3 attempts (0s, +8s, +16s — the
+ * old light-tier timing) and still gave up at ~24s cumulative, while a
+ * direct /health check against the same cold instance took 32s to respond.
+ * Cold-start duration is a property of the SERVICE, not which endpoint you
+ * happen to call — giving capabilities a shorter runway than chat doesn't
+ * reduce its odds of hitting a cold start, it just makes it give up earlier
+ * into the exact same cold-start window chat would still be waiting out.
+ * One shared, generous retry/backoff budget for every endpoint now; only
+ * the per-attempt TIMEOUT stays differentiated (chat's own generation can
+ * legitimately take longer once warm than a search/capabilities lookup).
+ */
+const RETRIES = 3;
+const RETRY_DELAY_MS = 10_000;
 
 // ── Response type definitions ─────────────────────────────────────────────────
 
@@ -123,8 +133,8 @@ export async function forwardChat(
       body: { user_id: userId, ...body },
       userId,
       timeoutMs: CHAT_TIMEOUT_MS,
-      retries: CHAT_RETRIES,
-      retryDelayMs: CHAT_RETRY_DELAY_MS,
+      retries: RETRIES,
+      retryDelayMs: RETRY_DELAY_MS,
     }
   );
   return result.ok && result.data ? result.data : null;
@@ -142,8 +152,8 @@ export async function forwardSearch(
       body: { user_id: userId, ...body },
       userId,
       timeoutMs: SEARCH_TIMEOUT_MS,
-      retries: LIGHT_RETRIES,
-      retryDelayMs: LIGHT_RETRY_DELAY_MS,
+      retries: RETRIES,
+      retryDelayMs: RETRY_DELAY_MS,
     }
   );
   return result.ok && result.data ? result.data : null;
@@ -155,7 +165,7 @@ export async function forwardGetConversations(
   const result = await callInternalService<ConversationsResponse>(
     CHAT_URL,
     "/internal/v1/conversations",
-    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: LIGHT_RETRIES, retryDelayMs: LIGHT_RETRY_DELAY_MS }
+    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
   );
   return result.ok && result.data ? result.data : null;
 }
@@ -167,7 +177,7 @@ export async function forwardGetConversation(
   const result = await callInternalService<ConversationResponse>(
     CHAT_URL,
     `/internal/v1/conversations/${conversationId}`,
-    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: LIGHT_RETRIES, retryDelayMs: LIGHT_RETRY_DELAY_MS }
+    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
   );
   return result.ok && result.data ? result.data : null;
 }
@@ -178,7 +188,7 @@ export async function forwardGetCapabilities(
   const result = await callInternalService<CapabilitiesResponse>(
     CHAT_URL,
     "/internal/v1/capabilities",
-    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: LIGHT_RETRIES, retryDelayMs: LIGHT_RETRY_DELAY_MS }
+    { method: "GET", userId, timeoutMs: CONV_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
   );
   return result.ok && result.data ? result.data : null;
 }
