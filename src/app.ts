@@ -21,6 +21,7 @@ import followRoutes from "./routes/followRoutes.ts";
 import reportRoutes from "./routes/reportRoutes.ts";
 import { reelRouter } from "./routes/reelRoutes.ts";
 import { assistantRouter } from "./routes/assistantRoutes.ts";
+import { adminRouter } from "./routes/adminRoutes.ts";
 import { getIoInstance } from "./config/socket.ts";
 import { rateLimit } from "./middleware/rateLimit.ts";
 
@@ -166,5 +167,6 @@ app.route("/api/v1/follow", followRoutes);
 app.route("/api/v1/reports", reportRoutes);
 app.route("/api/v1/reels", reelRouter);
 app.route("/api/v1/assistant", assistantRouter);
+app.route("/api/v1/admin", adminRouter);
 
 export default app;
