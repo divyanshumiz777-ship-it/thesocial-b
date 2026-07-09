@@ -8,6 +8,7 @@ import jwt from "jsonwebtoken";
 const { verify } = jwt;
 import { connectDB } from "./config/db.ts";
 import { setIoInstance } from "./config/socket.ts";
+import { getAllowedOrigins } from "./lib/corsOrigins.ts";
 import app from "./app.ts";
 import User from "./models/User.ts";
 
@@ -68,6 +69,20 @@ import User from "./models/User.ts";
 
 async function startServer() {
   try {
+    // FAIL FAST: both REST auth (authMiddleware.ts) and the Socket.IO
+    // handshake guard below verify against this same secret. Without this
+    // check, a missing JWT_SECRET in a given environment doesn't fail
+    // loudly at startup — it just makes every request and every socket
+    // handshake mysteriously return "Unauthorized" forever, which is a much
+    // harder production symptom to trace back to its actual cause.
+    if (!process.env.JWT_SECRET) {
+      console.error(
+        "FATAL: JWT_SECRET is not set. Refusing to start — REST auth and " +
+          "Socket.IO auth both depend on this secret being present.",
+      );
+      process.exit(1);
+    }
+
     await connectDB();
     console.log("✅ Database connected");
 
@@ -78,12 +93,32 @@ async function startServer() {
       port: PORT,
     }) as ServerType;
 
+    // Shared with the REST layer's CORS config (app.ts) — see
+    // lib/corsOrigins.ts. Previously this layer had its own copy that (a)
+    // fell back to "*" instead of a concrete origin when FRONTEND_URL was
+    // unset — an invalid combination with credentials:true — and (b) passed
+    // a multi-origin FRONTEND_URL through unsplit as a single literal
+    // string, silently breaking WebSocket CORS the moment a second origin
+    // was configured even though REST kept working fine.
+    const allowedOrigins = getAllowedOrigins();
+
     const io = new SocketIOServer(httpServerInstance as any, {
       cors: {
-        origin: process.env.FRONTEND_URL || "*",
+        origin: allowedOrigins,
         methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         credentials: true,
       },
+      // Prefer WebSocket immediately instead of Engine.IO's default
+      // "polling first, then upgrade" sequence. Long-polling's handshake is
+      // stateful and pinned to whichever backend instance served the first
+      // request — behind a load balancer with no sticky sessions, a
+      // polling-mode client can get its subsequent poll routed to a
+      // DIFFERENT instance and fail in a way that looks exactly like
+      // "connects, then immediately disconnects, reconnect loop." Going
+      // straight to WebSocket sidesteps that whole failure class. Polling
+      // remains listed as a fallback for the rare client/proxy that
+      // genuinely can't do WebSocket.
+      transports: ["websocket", "polling"],
       // Tune for production
       pingTimeout: 30_000,
       pingInterval: 25_000,
@@ -101,17 +136,49 @@ async function startServer() {
         console.error("Redis adapter subClient error:", err),
       );
       io.adapter(createAdapter(pubClient, subClient));
+      console.log(
+        "✅ Socket.IO Redis adapter attached — cross-instance broadcast is active.",
+      );
+    } else {
+      // Loud on purpose: with this unset, the app still starts and looks
+      // healthy on a single instance, but the moment this backend runs as
+      // more than one instance, events emitted on instance A silently never
+      // reach sockets connected to instance B — no error, no crash, just
+      // missing realtime delivery for whichever users land on the "other"
+      // instance. That failure mode is otherwise nearly impossible to spot
+      // from logs alone.
+      console.warn(
+        "⚠️  REDIS_URL is not set — the Socket.IO Redis adapter is NOT " +
+          "attached. Safe for a single backend instance; if this service " +
+          "ever runs as 2+ instances, cross-instance realtime broadcast " +
+          "will silently fail for users split across instances.",
+      );
     }
 
     setIoInstance(io);
 
     // ── Socket.IO authentication middleware ───────────────────────────────────
+    // Rejections are now logged server-side (they previously were not) —
+    // this is the only place that can tell you WHY a given handshake was
+    // refused (no token vs. expired vs. bad signature), which matters
+    // because a JWT_SECRET mismatch between the frontend (which mints the
+    // token) and this backend would otherwise look identical to a client
+    // simply not sending one.
 
     io.use((socket, next) => {
       const token = socket.handshake.auth?.token as string | undefined;
-      if (!token) return next(new Error("Unauthorized"));
+      if (!token) {
+        console.warn(`Socket ${socket.id} rejected: no auth token in handshake.`);
+        return next(new Error("Unauthorized"));
+      }
       verify(token, process.env.JWT_SECRET as string, (err: any, decoded: any) => {
-        if (err || !decoded) return next(new Error("Unauthorized"));
+        if (err || !decoded) {
+          console.warn(
+            `Socket ${socket.id} rejected: ${err?.name || "invalid token"}` +
+              (err?.message ? ` — ${err.message}` : ""),
+          );
+          return next(new Error("Unauthorized"));
+        }
         socket.data.userId = decoded.id;
         next();
       });
@@ -203,6 +270,16 @@ async function startServer() {
     io.on("connection", (socket) => {
       let connectedUserId: string = socket.data.userId as string;
       const joinedRooms = new Set<string>();
+
+      console.log(
+        `Socket ${socket.id} connected (user ${connectedUserId}, ` +
+          `transport=${socket.conn.transport.name})`,
+      );
+      // Diagnostic only — confirms whether a connection ever leaves
+      // long-polling for a real WebSocket, without changing behavior.
+      socket.conn.on("upgrade", (transport) => {
+        console.log(`Socket ${socket.id} transport upgraded to ${transport.name}`);
+      });
 
       // Join the user's personal room immediately — identity is JWT-verified
       socket.join(connectedUserId);
@@ -611,8 +688,11 @@ async function startServer() {
 
       // ── Disconnect ──────────────────────────────────────────────────────────
 
-      socket.on("disconnect", () => {
+      socket.on("disconnect", (reason) => {
         try {
+          console.log(
+            `Socket ${socket.id} (user ${connectedUserId}) disconnected: ${reason}`,
+          );
           if (connectedUserId) {
             markOffline(connectedUserId);
 

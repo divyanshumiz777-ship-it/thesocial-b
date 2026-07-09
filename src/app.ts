@@ -1,5 +1,6 @@
 import { Context, Hono } from "hono";
 import { cors } from "hono/cors";
+import { getAllowedOrigins, matchOrigin } from "./lib/corsOrigins.ts";
 import cacheMiddleware from "./middleware/cacheMiddleware.ts";
 import requestLogger from "./middleware/requestLogger.ts";
 import helmetMiddleware from "./middleware/helmetMiddleware.ts";
@@ -29,22 +30,18 @@ const app = new Hono();
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
 // FIX: credentials:true requires an explicit origin, not "*"
+//
+// Origin resolution now lives in ./lib/corsOrigins.ts and is shared with the
+// Socket.IO CORS config in server.ts — previously each layer had its own
+// copy, and the Socket.IO copy was never updated when this one was fixed,
+// silently breaking WebSocket CORS under a multi-origin FRONTEND_URL.
 
-const allowedOrigins = (
-  process.env.FRONTEND_URL ||
-  "http://localhost:3000" ||
-  "http://localhost:3001"
-)
-  .split(",")
-  .map((o) => o.trim());
+const allowedOrigins = getAllowedOrigins();
 
 app.use(
   "*",
   cors({
-    origin: (origin) => {
-      if (!origin) return allowedOrigins[0]; // same-origin / server-side requests
-      return allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
-    },
+    origin: (origin) => matchOrigin(origin, allowedOrigins),
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
