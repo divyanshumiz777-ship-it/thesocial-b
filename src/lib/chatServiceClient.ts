@@ -43,9 +43,18 @@ const CHAT_URL = aiServiceConfig.chatUrl;
  * call still returns in a few seconds; the 60s is only the ceiling for the
  * cold-boot-held case. The circuit breaker in aiServiceClient.ts caps the
  * aggregate cost if the service is genuinely down (opens after 8 failures).
+ *
+ * RETRIES=2 (~30s total backoff: 10s + 20s) was observed in production to be
+ * too short for a fast-502 cold start (Render's edge instantly rejecting
+ * while the instance is spun down) — all 3 attempts failed within the ~30s
+ * window while the instance was still booting, matching this module's own
+ * documented "~20-40s typical, up to ~100s observed" boot range. RETRIES=3
+ * extends the fast-502 survival window to ~60s (10s + 20s + 30s), covering
+ * the typical case with real margin without stretching a synchronous
+ * request out to the full ~100s worst case.
  */
 const REQUEST_TIMEOUT_MS = 60_000;
-const RETRIES = 2;
+const RETRIES = 3;
 const RETRY_DELAY_MS = 10_000;
 
 // ── Response type definitions ─────────────────────────────────────────────────
