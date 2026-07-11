@@ -118,6 +118,12 @@ export interface CapabilitiesResponse {
   capabilities: CapabilityDef[];
 }
 
+export interface VoiceSessionSummaryResponse {
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+}
+
 // ── Feature flag ──────────────────────────────────────────────────────────────
 
 export function isChatServiceEnabled(): boolean {
@@ -194,6 +200,35 @@ export async function forwardGetCapabilities(
     CHAT_URL,
     "/internal/v1/capabilities",
     { method: "GET", userId, timeoutMs: REQUEST_TIMEOUT_MS, retries: RETRIES, retryDelayMs: RETRY_DELAY_MS }
+  );
+  return result.ok && result.data ? result.data : null;
+}
+
+// No `userId` forwarded (no X-User-Id) — this summarizes a session on behalf
+// of all its participants, not a single querying user; the chat-service
+// endpoint doesn't read that header. ACL for later retrieval comes from
+// `allowedUserIds`, enforced the same way as every other RAG content type.
+export async function forwardSummarizeVoiceSession(body: {
+  session_id: string;
+  channel_id: string;
+  server_id: string;
+  channel_name: string;
+  server_name: string;
+  visibility: "public" | "private";
+  allowed_user_ids: string[];
+  participants: string[];
+  segments: Array<{ sender: string; text: string }>;
+}): Promise<VoiceSessionSummaryResponse | null> {
+  const result = await callInternalService<VoiceSessionSummaryResponse>(
+    CHAT_URL,
+    "/internal/v1/voice/summarize",
+    {
+      method: "POST",
+      body,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      retries: RETRIES,
+      retryDelayMs: RETRY_DELAY_MS,
+    }
   );
   return result.ok && result.data ? result.data : null;
 }

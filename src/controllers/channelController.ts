@@ -1,6 +1,7 @@
 import { Context } from "hono";
 import DiscordServer from "../models/DiscordServer.ts";
 import Channel from "../models/Channel.ts";
+import Category from "../models/Category.ts";
 import Message from "../models/Message.ts";
 import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.ts";
@@ -35,6 +36,14 @@ export const createChannel = async (c: Context) => {
       }));
     if (!isAllowed) return c.json({ error: "Permission denied" }, 403);
 
+    // The category must actually belong to this server — otherwise a caller
+    // could pass an arbitrary categoryId and file a channel under a category
+    // in a DIFFERENT server they don't manage.
+    const category = await Category.findOne({ _id: categoryId, server: serverId });
+    if (!category) {
+      return c.json({ error: "Category not found in this server" }, 404);
+    }
+
     const channel = new Channel({
       name,
       server: serverId,
@@ -42,9 +51,23 @@ export const createChannel = async (c: Context) => {
       type: typeOfChannel,
     });
     await channel.save();
-    await DiscordServer.findByIdAndUpdate(serverId, {
-      $push: { channels: channel._id },
-    });
+
+    // Both parent documents index this channel by id — DiscordServer.channels
+    // (server-wide flat list) AND Category.channels (what getServerById's
+    // `categories.channels` populate actually reads to render the sidebar).
+    // Previously only the former was updated, so a newly created channel was
+    // saved successfully but never appeared anywhere in the UI: the category
+    // it belonged to had no record of it, no matter how many times the
+    // client refetched the server.
+    await Promise.all([
+      DiscordServer.findByIdAndUpdate(serverId, {
+        $push: { channels: channel._id },
+      }),
+      Category.findByIdAndUpdate(categoryId, {
+        $push: { channels: channel._id },
+      }),
+    ]);
+
     return c.json({
       message: "Channel created successfully",
       channel,

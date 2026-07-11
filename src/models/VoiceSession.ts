@@ -7,7 +7,15 @@ export interface IVoiceSession {
   participants: Types.ObjectId[];
   startedAt: Date;
   endedAt?: Date;
-  status: "active" | "ended";
+  status: "active" | "ended" | "processing" | "summarized" | "failed";
+  // Populated once chat-service's /internal/v1/voice/summarize responds.
+  // Kept directly on the session (not a separate collection) — a session
+  // only ever has one summary, so there's no relationship a join would earn
+  // its keep for, and chat-service's batch RAG re-ingestion (ingest_sync.py's
+  // ingest_voice_sessions) can read it straight off this document.
+  summary?: string;
+  keyPoints?: string[];
+  actionItems?: string[];
 }
 
 const VoiceSessionSchema = new Schema<IVoiceSession>(
@@ -17,7 +25,14 @@ const VoiceSessionSchema = new Schema<IVoiceSession>(
     participants: [{ type: Schema.Types.ObjectId, ref: "User" }],
     startedAt: { type: Date, required: true },
     endedAt: { type: Date },
-    status: { type: String, enum: ["active", "ended"], default: "active" },
+    status: {
+      type: String,
+      enum: ["active", "ended", "processing", "summarized", "failed"],
+      default: "active",
+    },
+    summary: { type: String },
+    keyPoints: [{ type: String }],
+    actionItems: [{ type: String }],
   },
   { timestamps: true }
 );

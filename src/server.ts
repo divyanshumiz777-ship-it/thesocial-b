@@ -14,6 +14,15 @@ import User from "./models/User.ts";
 import VoiceSession from "./models/VoiceSession.ts";
 import VoiceSessionTranscript from "./models/VoiceSessionTranscript.ts";
 import Channel from "./models/Channel.ts";
+import DiscordServer from "./models/DiscordServer.ts";
+import {
+  createNotification,
+  sendNotificationViaSocket,
+} from "./controllers/notificationController.ts";
+import {
+  forwardSummarizeVoiceSession,
+  isChatServiceEnabled,
+} from "./lib/chatServiceClient.ts";
 
 /**
  * server.ts — production-grade server bootstrap.
@@ -287,9 +296,132 @@ async function startServer() {
             channelId,
             sessionId: session._id.toString(),
           });
+          // Fire-and-forget: summarization can take several seconds (LLM
+          // call + RAG embed/upsert) and must not delay whoever triggered
+          // this (a leave/disconnect handler). Failures are handled and
+          // logged entirely inside summarizeVoiceSession itself.
+          void summarizeVoiceSession(session._id.toString());
         }
       } catch (err) {
         console.error("endVoiceSessionIfEmpty error:", err);
+      }
+    };
+
+    // ── Voice session summarization (Phase C) ───────────────────────────────
+    // Triggered once a session ends (above). Skips entirely — leaving the
+    // session at status "ended" — when there's no transcript at all
+    // (transcription was never enabled for the channel, no participant's
+    // browser supported/consented to it, or nobody spoke): summarizing
+    // nothing would either error or produce a hallucinated-sounding response
+    // from an empty prompt, neither of which is useful.
+    const summarizeVoiceSession = async (sessionId: string) => {
+      if (!isChatServiceEnabled()) return;
+
+      try {
+        const transcript = await VoiceSessionTranscript.findOne({
+          session: sessionId,
+        }).lean();
+        if (!transcript || transcript.segments.length === 0) return;
+
+        const session = await VoiceSession.findById(sessionId).lean();
+        if (!session) return;
+
+        const [channel, server] = await Promise.all([
+          Channel.findById(session.channel).lean(),
+          DiscordServer.findById(session.server).lean(),
+        ]);
+        if (!channel || !server) return;
+
+        await VoiceSession.updateOne(
+          { _id: sessionId },
+          { status: "processing" },
+        );
+
+        const speakerIds = Array.from(
+          new Set(transcript.segments.map((s) => s.speaker.toString())),
+        );
+        const users = await User.find({ _id: { $in: speakerIds } })
+          .select("name")
+          .lean();
+        const nameById = new Map(
+          users.map((u) => [u._id.toString(), u.name || "Someone"]),
+        );
+
+        const isPublic = server.visibility === "public";
+        const allowedUserIds = isPublic
+          ? []
+          : server.members.map((m) => m.user.toString());
+
+        const result = await forwardSummarizeVoiceSession({
+          session_id: sessionId,
+          channel_id: channel._id.toString(),
+          server_id: server._id.toString(),
+          channel_name: channel.name,
+          server_name: server.name,
+          visibility: isPublic ? "public" : "private",
+          allowed_user_ids: allowedUserIds,
+          participants: [...nameById.values()],
+          segments: transcript.segments.map((s) => ({
+            sender: nameById.get(s.speaker.toString()) ?? "Someone",
+            text: s.text,
+          })),
+        });
+
+        if (!result) {
+          await VoiceSession.updateOne(
+            { _id: sessionId },
+            { status: "failed" },
+          );
+          return;
+        }
+
+        await VoiceSession.updateOne(
+          { _id: sessionId },
+          {
+            status: "summarized",
+            summary: result.summary,
+            keyPoints: result.keyPoints,
+            actionItems: result.actionItems,
+          },
+        );
+
+        io.to(session.channel.toString()).emit("voice:summary-ready", {
+          channelId: session.channel.toString(),
+          sessionId,
+          summaryPreview: result.summary.slice(0, 140),
+        });
+
+        const recipientIds = session.participants.map((p) => p.toString());
+        await Promise.all(
+          recipientIds.map(async (recipientId) => {
+            const notification = await createNotification({
+              recipient: recipientId,
+              type: "voice_session_summary",
+              title: `Voice session summary ready — #${channel.name}`,
+              message: result.summary.slice(0, 140),
+              metadata: {
+                serverId: server._id.toString(),
+                serverName: server.name,
+                channelId: channel._id.toString(),
+                channelName: channel.name,
+                sessionId,
+              },
+            });
+            if (notification) {
+              sendNotificationViaSocket(io, recipientId, notification);
+            }
+          }),
+        );
+      } catch (err) {
+        console.error("summarizeVoiceSession error:", err);
+        try {
+          await VoiceSession.updateOne(
+            { _id: sessionId },
+            { status: "failed" },
+          );
+        } catch {
+          /* non-fatal */
+        }
       }
     };
 
