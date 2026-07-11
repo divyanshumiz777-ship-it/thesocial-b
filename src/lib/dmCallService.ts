@@ -82,8 +82,25 @@ async function createCallLogMessage(
       callInfo: { type: call.type, outcome, durationSeconds, caller: call.caller },
     });
 
+    // Mirrors createDm's own update exactly (dmController.ts) — sending a
+    // message (a call-log entry is one) un-hides / un-deletes the
+    // conversation for both participants and clears their per-user
+    // deletedAt cutoff. Without this, a call placed on a conversation either
+    // side had previously hidden/removed would create the log entry but
+    // leave the conversation missing from that side's list — unlike what
+    // happens for a normal text message.
+    const callerIdStr = call.caller.toString();
+    const calleeIdStr = call.callee.toString();
     await Conversation.findByIdAndUpdate(call.conversationId, {
       $push: { messages: newMessage._id },
+      $pull: {
+        hiddenFor: { $in: [callerIdStr, calleeIdStr] },
+        deletedFor: { $in: [callerIdStr, calleeIdStr] },
+      },
+      $unset: {
+        [`deletedAt.${callerIdStr}`]: "",
+        [`deletedAt.${calleeIdStr}`]: "",
+      },
     });
 
     const populatedMessage = await Message.findById(newMessage._id).populate({
