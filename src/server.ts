@@ -30,6 +30,7 @@ import {
   rejectCall as rejectDMCall,
   cancelCall as cancelDMCall,
   endCall as endDMCall,
+  mediaReady as mediaReadyDMCall,
 } from "./lib/dmCallService.ts";
 
 /**
@@ -1044,6 +1045,12 @@ async function startServer() {
       });
       socket.on("call:end", (data) => {
         void endDMCall(io, connectedUserId, data);
+      });
+      // Each side reports readiness once ITS OWN getUserMedia() resolves —
+      // see dmCallService.ts's mediaReady for why webrtc:user-joined waits
+      // for both rather than firing immediately at accept time.
+      socket.on("call:media-ready", (data) => {
+        void mediaReadyDMCall(io, connectedUserId, data);
       });
 
       // ── Disconnect ──────────────────────────────────────────────────────────

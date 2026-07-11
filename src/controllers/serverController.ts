@@ -100,6 +100,7 @@ export const kickUser = async (c: Context) => {
   if (!isMod) return c.json({ error: "Permission denied" }, 403);
   await DiscordServer.findByIdAndUpdate(serverId, { $pull: { members: { user: userId } } });
   await ServerMember.deleteOne({ server: serverId, user: userId });
+  await invalidateAfterServerUpdate(serverId);
   await AuditLog.create({
     server: server._id,
     action: "kick",
@@ -818,6 +819,7 @@ export const editMemberRole = async (c: Context) => {
       { server: serverId, user: { $in: users } },
       { $set: { roles } }
     );
+    await invalidateAfterServerUpdate(serverId);
 
     if (result.modifiedCount === 0) {
       return c.json(
@@ -1061,6 +1063,7 @@ export const unBanMember = async (c: Context) => {
       { server: serverId, user: userToUnbanId },
       { $unset: { banned: "" } }
     );
+    await invalidateAfterServerUpdate(serverId);
     return c.json({ message: "User unbanned successfully" }, 200);
   } catch (error) {
     console.error("Error unbanning member:", error);
@@ -1121,6 +1124,7 @@ export const muteMember = async (c: Context) => {
       { server: serverId, user: userToMuteId },
       { $set: { muted: { isMuted: true, reason, mutedBy: userId, expiresAt } } }
     );
+    await invalidateAfterServerUpdate(serverId);
 
     io.to(serverId.toString()).emit("memberMuted", {
       userToMuteId,
@@ -1173,6 +1177,7 @@ export const unmuteMember = async (c: Context) => {
       { server: serverId, user: userToUnmuteId },
       { $unset: { muted: "" } }
     );
+    await invalidateAfterServerUpdate(serverId);
     io.to(serverId.toString()).emit("memberUnmuted", {
       userToUnmuteId,
       serverId,
@@ -1372,6 +1377,13 @@ export const approveJoinRequest = async (
       $addToSet: { servers: serverId },
     });
 
+    // Without this, the approved user's OWN per-viewer cached snapshot of
+    // getServerById (see cacheMiddleware.ts) keeps being served back to
+    // them — membership is written correctly above, but their client (even
+    // on a full page reload, which hits this same cached response) looks
+    // like the request was never approved for up to the cache's TTL.
+    await invalidateAfterServerUpdate(serverId);
+
     const userNotification = await createNotification({
       recipient: requestUserId,
       sender: user.id,
@@ -1484,6 +1496,9 @@ export const rejectJoinRequest = async (
         $set: { "joinRequests.$.status": "rejected" },
       }
     );
+    // getJoinRequests (an admin/owner-facing GET) is also cached per-viewer —
+    // without this, the admin who just rejected still sees it pending.
+    await invalidateAfterServerUpdate(serverId);
 
     const notification = await createNotification({
       recipient: requestUserId,
@@ -1547,6 +1562,7 @@ export const cancelJoinRequest = async (
 
     server.joinRequests = updatedJoinRequests;
     await server.save();
+    await invalidateAfterServerUpdate(serverId);
 
     const notification = await createNotification({
       recipient: server.owner.toString(),

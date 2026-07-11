@@ -37,6 +37,18 @@ const CALL_RING_TIMEOUT_MS = 45_000;
 // cosmetically-stale row, not a functional problem — nothing polls it).
 const callTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// callId -> set of userIds who've confirmed their OWN local media is ready.
+// webrtc:user-joined is only ever emitted once BOTH sides are in this set —
+// each side's useWebRTC only registers its offer/answer/ICE listeners once
+// ITS OWN getUserMedia() resolves (mirrors the community voice-channel gate:
+// enabled = joined && !!localStream), so emitting the join signal any
+// earlier — e.g. immediately at accept time — risks it arriving before one
+// side is listening yet (getUserMedia can take anywhere from a few ms to
+// several seconds on a first-ever permission prompt), and Socket.IO does not
+// replay missed events. Waiting for both removes the race entirely instead
+// of relying on emission-order luck.
+const callMediaReady = new Map<string, Set<string>>();
+
 function clearCallTimer(callId: string) {
   const timer = callTimers.get(callId);
   if (timer) {
@@ -276,6 +288,54 @@ export async function acceptCall(
   }
 }
 
+// callIds whose "both sides ready" signal has already fired — guards against
+// re-emitting webrtc:user-joined (and thus a second, leaked RTCPeerConnection
+// on the caller's side — handleUserJoined doesn't close an existing one
+// before creating a new one) if mediaReady is ever called again after the
+// pair is already complete (e.g. a client-side reconnect re-running its
+// ready effect).
+const callMediaTriggered = new Set<string>();
+
+export async function mediaReady(
+  io: Server,
+  userId: string,
+  data: { callId?: string },
+): Promise<void> {
+  const callId = data?.callId;
+  if (!callId || !mongoose.Types.ObjectId.isValid(callId)) return;
+  if (callMediaTriggered.has(callId)) return;
+
+  try {
+    const call = await DMCall.findOne({ _id: callId, status: "accepted" })
+      .select("caller callee")
+      .lean();
+    if (!call) return;
+    if (call.caller.toString() !== userId && call.callee.toString() !== userId) return;
+
+    let ready = callMediaReady.get(callId);
+    if (!ready) {
+      ready = new Set();
+      callMediaReady.set(callId, ready);
+    }
+    ready.add(userId);
+
+    const bothReady =
+      ready.has(call.caller.toString()) && ready.has(call.callee.toString());
+    if (!bothReady) return;
+
+    callMediaTriggered.add(callId);
+
+    // Naming the callee mirrors community voice channels' own semantics: the
+    // OTHER party (caller) reacts to webrtc:user-joined by creating the
+    // RTCPeerConnection and sending the offer; the callee's own client sees
+    // remoteId === its own userId and no-ops (same self-check every other
+    // webrtc:user-joined recipient already has).
+    io.to(callId).emit("webrtc:user-joined", { userId: call.callee.toString() });
+  } catch (err) {
+    console.error("mediaReady error:", err);
+  }
+}
+
 export async function rejectCall(
   io: Server,
   userId: string,
@@ -342,6 +402,8 @@ export async function endCall(
 
     io.to(callId).emit("call:ended", { callId });
     io.socketsLeave(callId);
+    callMediaReady.delete(callId);
+    callMediaTriggered.delete(callId);
 
     const durationSeconds = call.connectedAt
       ? Math.max(0, Math.round((endedAt.getTime() - call.connectedAt.getTime()) / 1000))
