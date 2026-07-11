@@ -7,7 +7,7 @@ export interface IChannel {
   server: Types.ObjectId;
   messages: Types.ObjectId[];
   senders: Types.ObjectId[];
-  type: "Text" | "Voice";
+  type: "Text" | "Voice" | "Video";
   thread: Types.ObjectId[];
   participants: Types.ObjectId[];
   // Per-channel, admin-opt-in only — defaults off. Gates whether joining this
@@ -19,7 +19,7 @@ export interface IChannel {
 const ChannelSchema = new Schema<IChannel>(
   {
     name: { type: String, required: true, maxLength: 100 },
-    type: { type: String, enum: ["Text", "Voice"], required: true },
+    type: { type: String, enum: ["Text", "Voice", "Video"], required: true },
     category: { type: Schema.Types.ObjectId, ref: "Category", required: true },
     server: {
       type: Schema.Types.ObjectId,

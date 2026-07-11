@@ -15,6 +15,7 @@ import VoiceSession from "./models/VoiceSession.ts";
 import VoiceSessionTranscript from "./models/VoiceSessionTranscript.ts";
 import Channel from "./models/Channel.ts";
 import DiscordServer from "./models/DiscordServer.ts";
+import ServerMember from "./models/ServerMember.ts";
 import {
   createNotification,
   sendNotificationViaSocket,
@@ -211,6 +212,15 @@ async function startServer() {
     /** userId → presence entry. Never marks offline immediately — see markOffline. */
     const onlineUsers = new Map<string, PresenceEntry>();
 
+    /** sessionId → set of userIds who have explicitly told the server they
+     * consent to transcription for that voice session. In-memory, matching
+     * onlineUsers/joinedRooms — a live call's consent state doesn't need to
+     * survive a server restart any more than its room membership does.
+     * Server-enforced (not just the client-side gate on whether speech
+     * recognition runs at all) because a modified client could otherwise
+     * emit voice:caption regardless of what its own UI shows. */
+    const voiceConsent = new Map<string, Set<string>>();
+
     /** How long to wait after a user's last socket disconnects before
      * broadcasting them offline. Covers transient network drops, page
      * refreshes, and (now largely eliminated, but kept as defense in depth)
@@ -230,6 +240,30 @@ async function startServer() {
     };
 
     // ── Voice session lifecycle ─────────────────────────────────────────────
+    // Any server member (owner, admin, mod, or plain member) may join a
+    // voice channel's call — this is a participation check, not a structural
+    // change, so it deliberately matches voiceSessionController.ts's lax
+    // "any role" read-access rule rather than createChannel/updateChannel's
+    // admin/mod-only gate.
+    const canJoinVoiceChannel = async (
+      channelId: string,
+      userId: string,
+    ): Promise<boolean> => {
+      try {
+        const channel = await Channel.findById(channelId).select("server").lean();
+        if (!channel) return false;
+        const server = await DiscordServer.findById(channel.server)
+          .select("owner")
+          .lean();
+        if (!server) return false;
+        if (server.owner.toString() === userId) return true;
+        return !!(await ServerMember.exists({ server: channel.server, user: userId }));
+      } catch (err) {
+        console.error("canJoinVoiceChannel error:", err);
+        return false;
+      }
+    };
+
     // Cheap in-memory room-size check first (this runs on every disconnect
     // for every room the socket was in, most of which aren't voice channels
     // at all) — only falls through to a DB query on the rare "room just
@@ -292,6 +326,7 @@ async function startServer() {
           { new: true },
         );
         if (session) {
+          voiceConsent.delete(session._id.toString());
           io.to(channelId).emit("voice:session-ended", {
             channelId,
             sessionId: session._id.toString(),
@@ -850,12 +885,23 @@ async function startServer() {
 
       socket.on(
         "webrtc:join",
-        async ({ channelId, userId }: { channelId: string; userId: string }) => {
+        // `userId` is deliberately NOT read from the client payload here —
+        // every other handler in this file uses connectedUserId (the
+        // JWT-verified identity from the handshake); trusting a
+        // client-supplied userId would let a modified client impersonate
+        // anyone in session participant tracking, notifications, and the
+        // RAG-indexed transcript's speaker attribution.
+        async ({ channelId }: { channelId: string }) => {
           try {
+            const allowed = await canJoinVoiceChannel(channelId, connectedUserId);
+            if (!allowed) {
+              socket.emit("webrtc:join-denied", { channelId });
+              return;
+            }
             socket.join(channelId);
             joinedRooms.add(channelId);
-            io.to(channelId).emit("webrtc:user-joined", { userId });
-            const sessionId = await startOrJoinVoiceSession(channelId, userId);
+            io.to(channelId).emit("webrtc:user-joined", { userId: connectedUserId });
+            const sessionId = await startOrJoinVoiceSession(channelId, connectedUserId);
             // Told only to the joining socket (not broadcast) — this is how
             // a client learns which session its own captions belong to,
             // whether it just started the session or joined an existing one.
@@ -870,11 +916,11 @@ async function startServer() {
 
       socket.on(
         "webrtc:leave",
-        async ({ channelId, userId }: { channelId: string; userId: string }) => {
+        async ({ channelId }: { channelId: string }) => {
           try {
             socket.leave(channelId);
             joinedRooms.delete(channelId);
-            io.to(channelId).emit("webrtc:user-left", { userId });
+            io.to(channelId).emit("webrtc:user-left", { userId: connectedUserId });
             await endVoiceSessionIfEmpty(channelId);
           } catch {
             /* non-fatal */
@@ -882,23 +928,33 @@ async function startServer() {
         },
       );
 
+      // Pure SDP/ICE relay — but each still needs two checks the previous
+      // version skipped: (1) the sender must actually be a member of the
+      // target room (otherwise a socket that never passed webrtc:join's
+      // permission gate could inject signaling into any room just by
+      // knowing its channelId), and (2) `from` is server-stamped rather
+      // than trusted from the payload, for the same impersonation reason
+      // as webrtc:join above.
       socket.on("webrtc:offer", (data: any) => {
         try {
-          io.to(data.channelId).emit("webrtc:offer", data);
+          if (!data?.channelId || !socket.rooms.has(data.channelId)) return;
+          io.to(data.channelId).emit("webrtc:offer", { ...data, from: connectedUserId });
         } catch {
           /* */
         }
       });
       socket.on("webrtc:answer", (data: any) => {
         try {
-          io.to(data.channelId).emit("webrtc:answer", data);
+          if (!data?.channelId || !socket.rooms.has(data.channelId)) return;
+          io.to(data.channelId).emit("webrtc:answer", { ...data, from: connectedUserId });
         } catch {
           /* */
         }
       });
       socket.on("webrtc:ice-candidate", (data: any) => {
         try {
-          io.to(data.channelId).emit("webrtc:ice-candidate", data);
+          if (!data?.channelId || !socket.rooms.has(data.channelId)) return;
+          io.to(data.channelId).emit("webrtc:ice-candidate", { ...data, from: connectedUserId });
         } catch {
           /* */
         }
@@ -912,26 +968,43 @@ async function startServer() {
       // audio access at all in this peer-to-peer WebRTC setup, so
       // transcription only exists where the browser's own recognition API
       // is available; this handler just relays/persists text, never audio.
+      // Explicit, server-tracked opt-in — sent once by the client when the
+      // user clicks "Enable captions for me" (see VoiceVideoChannel.tsx).
+      // voice:caption below refuses to relay or persist anything for a
+      // speaker who hasn't sent this for the given session, so consent is
+      // enforced here rather than trusted from client-side UI state alone.
+      socket.on("voice:consent", ({ sessionId }: { sessionId: string }) => {
+        if (!sessionId) return;
+        if (!voiceConsent.has(sessionId)) voiceConsent.set(sessionId, new Set());
+        voiceConsent.get(sessionId)!.add(connectedUserId);
+      });
+
       socket.on(
         "voice:caption",
-        async (data: {
-          channelId: string;
-          sessionId: string;
-          speakerId: string;
-          text: string;
-          isFinal: boolean;
-        }) => {
+        // `speakerId` is server-stamped from connectedUserId, not read from
+        // the payload — this is the identity that ends up permanently
+        // attributed to a FINAL transcript segment, and is what the consent
+        // check below is keyed on, so it must be trustworthy, not
+        // client-supplied.
+        async (data: { channelId: string; sessionId: string; text: string; isFinal: boolean }) => {
           try {
-            const { channelId, sessionId, speakerId, text, isFinal } = data;
+            const { channelId, sessionId, text, isFinal } = data;
             if (!text?.trim()) return;
-            socket.to(channelId).emit("voice:caption", data);
+            // No consent on file for this speaker/session → drop entirely,
+            // both the live relay and persistence. A non-consenting
+            // participant's own words never leave their device via this
+            // path, regardless of what a (possibly modified) client sends.
+            if (!voiceConsent.get(sessionId)?.has(connectedUserId)) return;
+
+            const payload = { channelId, sessionId, speakerId: connectedUserId, text, isFinal };
+            socket.to(channelId).emit("voice:caption", payload);
             if (!isFinal) return;
 
             await VoiceSessionTranscript.updateOne(
               { session: sessionId },
               {
                 $push: {
-                  segments: { speaker: speakerId, text, timestamp: new Date() },
+                  segments: { speaker: connectedUserId, text, timestamp: new Date() },
                 },
               },
               { upsert: true },

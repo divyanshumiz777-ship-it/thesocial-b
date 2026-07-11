@@ -9,6 +9,9 @@ import Thread from "../models/Thread.ts";
 import ChannelReadStatus from "../models/ChannelReadStatus.ts";
 import Notification from "../models/Notification.ts";
 import User from "../models/User.ts";
+import VoiceSession from "../models/VoiceSession.ts";
+import VoiceSessionTranscript from "../models/VoiceSessionTranscript.ts";
+import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
 import { Server } from "socket.io";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { nanoid } from "nanoid";
@@ -454,6 +457,10 @@ export const deleteServer = async (
       .session(session);
     const channelIdList = channelIds.map((c: any) => c._id);
 
+    const voiceSessionIds = await VoiceSession.find({ server: serverId })
+      .session(session)
+      .distinct("_id");
+
     await Promise.all([
       Message.deleteMany({ server: serverId }, { session }),
       Thread.deleteMany({ server: serverId }, { session }),
@@ -466,6 +473,13 @@ export const deleteServer = async (
       Invite.deleteMany({ server: serverId }, { session }),
       AuditLog.deleteMany({ server: serverId }, { session }),
       Notification.deleteMany({ "metadata.serverId": serverId }, { session }),
+      voiceSessionIds.length
+        ? VoiceSessionTranscript.deleteMany(
+            { session: { $in: voiceSessionIds } },
+            { session }
+          )
+        : Promise.resolve(),
+      VoiceSession.deleteMany({ server: serverId }, { session }),
     ]);
 
     await Promise.all([
@@ -482,6 +496,15 @@ export const deleteServer = async (
     await DiscordServer.findByIdAndDelete(serverId, { session });
 
     await session.commitTransaction();
+
+    // Fire-and-forget: the transaction above has already committed — a
+    // failure here only means this server's entire indexed content (its own
+    // summary, channels, messages, voice-session recaps) keeps surfacing
+    // through search/the assistant a while longer, never a reason to roll
+    // back or delay the actual delete.
+    if (isChatServiceEnabled()) {
+      void forwardDeleteContent("server", serverId);
+    }
 
     const io = (c as any).get("io") as Server | undefined;
     if (io) {

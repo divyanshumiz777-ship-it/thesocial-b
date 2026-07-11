@@ -4,6 +4,7 @@ import Channel from "../models/Channel.ts";
 import Message from "../models/Message.ts";
 import DiscordServer from "../models/DiscordServer.ts";
 import mongoose from "mongoose";
+import { invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
 
 export const createCategory = async (c: Context) => {
   const { serverId } = c.req.param();
@@ -21,6 +22,9 @@ export const createCategory = async (c: Context) => {
     await category.save();
     server.categories.push(category._id);
     await server.save();
+
+    await invalidateAfterServerUpdate(serverId);
+
     return c.json({
       message: "Category created successfully",
       category,
@@ -49,6 +53,8 @@ export const updateCategory = async (c: Context) => {
     if (!updatedCategory) {
       return c.json({ error: "Category not found" }, 404);
     }
+
+    await invalidateAfterServerUpdate(updatedCategory.server.toString());
 
     return c.json({
       message: "Category updated successfully",
@@ -84,12 +90,14 @@ export const deleteCategory = async (c: Context) => {
   }
 
   const session = await mongoose.startSession();
+  let deletedServerId: string | null = null;
   try {
     await session.withTransaction(async () => {
       const category = await Category.findById(categoryId).session(session);
       if (!category) {
         throw Object.assign(new Error("Category not found"), { status: 404 });
       }
+      deletedServerId = category.server.toString();
 
       const channels = await Channel.find({ category: categoryId }, "_id").session(session);
       const channelIds = channels.map((ch) => ch._id);
@@ -106,6 +114,11 @@ export const deleteCategory = async (c: Context) => {
 
       await Category.findByIdAndDelete(categoryId).session(session);
     });
+
+    // Outside the transaction (already committed) — cache invalidation
+    // isn't itself transactional/revertible, and doesn't need to be, since
+    // the Mongo delete is the source of truth either way.
+    if (deletedServerId) await invalidateAfterServerUpdate(deletedServerId);
 
     return c.json({ message: "Category deleted successfully" });
   } catch (error: any) {

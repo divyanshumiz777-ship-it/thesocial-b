@@ -208,6 +208,29 @@ export async function forwardGetCapabilities(
 // of all its participants, not a single querying user; the chat-service
 // endpoint doesn't read that header. ACL for later retrieval comes from
 // `allowedUserIds`, enforced the same way as every other RAG content type.
+// Best-effort, fire-and-forget from every call site — the Mongo delete has
+// already committed by the time this is called; a failure here only means
+// the deleted content keeps surfacing through search/the assistant a while
+// longer; it never blocks or reverts the actual delete operation.
+export async function forwardDeleteContent(
+  scope: "server" | "channel" | "source",
+  id: string,
+  sourceType?: string,
+): Promise<boolean> {
+  const result = await callInternalService<{ status: string }>(
+    CHAT_URL,
+    "/internal/v1/delete",
+    {
+      method: "POST",
+      body: { scope, id, source_type: sourceType },
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      retries: RETRIES,
+      retryDelayMs: RETRY_DELAY_MS,
+    }
+  );
+  return result.ok;
+}
+
 export async function forwardSummarizeVoiceSession(body: {
   session_id: string;
   channel_id: string;

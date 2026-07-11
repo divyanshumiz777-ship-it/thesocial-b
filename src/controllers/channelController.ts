@@ -3,10 +3,14 @@ import DiscordServer from "../models/DiscordServer.ts";
 import Channel from "../models/Channel.ts";
 import Category from "../models/Category.ts";
 import Message from "../models/Message.ts";
+import VoiceSession from "../models/VoiceSession.ts";
+import VoiceSessionTranscript from "../models/VoiceSessionTranscript.ts";
 import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.ts";
 import { Server } from "socket.io";
 import ServerMember from "../models/ServerMember.ts";
+import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
+import { invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
 
 export const createChannel = async (c: Context) => {
   const { serverId } = c.req.param();
@@ -68,6 +72,28 @@ export const createChannel = async (c: Context) => {
       }),
     ]);
 
+    // getServerById's response is cached per-viewer (see cacheMiddleware.ts)
+    // with a 5-minute TTL. Without this, the CREATING user's own cached
+    // snapshot (populated the moment they first opened the community, before
+    // this channel existed) keeps getting replayed back to them on every
+    // reload for up to 5 minutes — the channel is correctly saved and any
+    // OTHER user (with no warm cache entry) sees it immediately, which is
+    // exactly the "works for a different login, not for me" symptom this
+    // was reported as. Wildcards across every viewer's cached key for this
+    // server (see CacheInvalidator.invalidateServer), not just the creator's.
+    await invalidateAfterServerUpdate(serverId);
+
+    try {
+      const io = (c as any).get("io") as Server | undefined;
+      if (io) {
+        io.to(serverId).emit("channel:created", {
+          serverId,
+          categoryId,
+          channel,
+        });
+      }
+    } catch {}
+
     return c.json({
       message: "Channel created successfully",
       channel,
@@ -112,6 +138,8 @@ export const updateChannel = async (c: Context) => {
       return c.json({ error: "Channel not found" }, 404);
     }
 
+    await invalidateAfterServerUpdate(channel.server.toString());
+
     await AuditLog.create({
       server: channel.server,
       action: "channel_rename",
@@ -139,6 +167,78 @@ export const updateChannel = async (c: Context) => {
     return c.json({ error: "Internal server error" }, 500);
   }
 };
+// Structural/policy change (affects every future participant's privacy
+// expectations for this channel), not a per-user preference — mirrors
+// updateChannel's owner-or-admin/mod gate rather than the lax "any member"
+// check used for read-only voice-session history (voiceSessionController.ts).
+export const updateChannelTranscription = async (c: Context) => {
+  const { channelId } = c.req.param();
+  const body = await c.req.json();
+  const { enabled } = body;
+  const user = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(channelId)) {
+    return c.json({ error: "Invalid channel ID format" }, 400);
+  }
+  if (typeof enabled !== "boolean") {
+    return c.json({ error: "enabled must be a boolean" }, 400);
+  }
+
+  try {
+    const channel = await Channel.findById(channelId);
+    if (!channel) return c.json({ error: "Channel not found" }, 404);
+
+    if (channel.type === "Text") {
+      return c.json(
+        { error: "Transcription only applies to Voice/Video channels" },
+        400
+      );
+    }
+
+    const server = await DiscordServer.findById(channel.server).lean();
+    if (!server) return c.json({ error: "Server not found" }, 404);
+    const isAllowed =
+      server.owner.toString() === user?.id ||
+      !!(await ServerMember.exists({
+        server: channel.server,
+        user: user?.id,
+        roles: { $in: ["admin", "mod"] },
+      }));
+    if (!isAllowed) return c.json({ error: "Permission denied" }, 403);
+
+    channel.transcriptionEnabled = enabled;
+    await channel.save();
+
+    await invalidateAfterServerUpdate(channel.server.toString());
+
+    await AuditLog.create({
+      server: channel.server,
+      action: "channel_transcription_toggle",
+      performedBy: user?.id,
+      details: `Channel ${channelId} transcription ${enabled ? "enabled" : "disabled"}`,
+    });
+
+    try {
+      const io = (c as any).get("io") as Server | undefined;
+      if (io) {
+        io.to(channel.server.toString()).emit("channel:updated", {
+          serverId: channel.server.toString(),
+          channelId,
+          transcriptionEnabled: enabled,
+        });
+      }
+    } catch {}
+
+    return c.json({
+      message: "Transcription setting updated successfully",
+      channel,
+    });
+  } catch (error) {
+    console.error("Error updating channel transcription setting:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
 export const getChannels = async (c: Context) => {
   const { serverId } = c.req.param();
 
@@ -183,17 +283,47 @@ export const deleteChannel = async (c: Context) => {
       return c.json({ error: "Channel not found" }, 404);
     }
 
-    await Message.deleteMany({ channel: channelId });
+    const voiceSessionIds = await VoiceSession.find({ channel: channelId })
+      .distinct("_id");
 
-    await DiscordServer.findByIdAndUpdate(channel.server, {
-      $pull: { channels: deletedChannel._id },
-    });
+    await Promise.all([
+      Message.deleteMany({ channel: channelId }),
+      voiceSessionIds.length
+        ? VoiceSessionTranscript.deleteMany({ session: { $in: voiceSessionIds } })
+        : Promise.resolve(),
+      VoiceSession.deleteMany({ channel: channelId }),
+    ]);
+
+    // Both parent documents index this channel by id (see createChannel's
+    // own comment on why) — DiscordServer.channels AND Category.channels.
+    // Previously only the former was pulled here, so a deleted channel's id
+    // lingered in its category's array, the same populate mismatch as the
+    // create-side bug, just in reverse.
+    await Promise.all([
+      DiscordServer.findByIdAndUpdate(channel.server, {
+        $pull: { channels: deletedChannel._id },
+      }),
+      Category.findByIdAndUpdate(channel.category, {
+        $pull: { channels: deletedChannel._id },
+      }),
+    ]);
+
+    await invalidateAfterServerUpdate(channel.server.toString());
+
     await AuditLog.create({
       server: channel.server,
       action: "channel_delete",
       performedBy: user?.id,
       details: `Channel ${channelId} deleted`,
     });
+
+    // Fire-and-forget: the Mongo delete above has already committed: a
+    // failure here only means this channel's messages/voice-session recaps
+    // keep surfacing through search/the assistant a while longer, never a
+    // reason to roll back or delay the actual delete.
+    if (isChatServiceEnabled()) {
+      void forwardDeleteContent("channel", channelId);
+    }
 
     try {
       const io = (c as any).get("io") as Server | undefined;

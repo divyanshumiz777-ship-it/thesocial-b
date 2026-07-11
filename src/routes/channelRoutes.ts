@@ -5,6 +5,7 @@ import {
   createChannel,
   getChannels,
   updateChannel,
+  updateChannelTranscription,
   deleteChannel,
   searchChannels,
 } from "../controllers/channelController.ts";
@@ -15,4 +16,9 @@ channelRouter.get("/search", searchChannels);
 channelRouter.post("/create-channel/:serverId", authMiddleware, createChannel);
 channelRouter.get("/:serverId", getChannels);
 channelRouter.put("/:channelId", authMiddleware, updateChannel);
+channelRouter.patch(
+  "/:channelId/transcription",
+  authMiddleware,
+  updateChannelTranscription
+);
 channelRouter.delete("/:channelId", authMiddleware, deleteChannel);
