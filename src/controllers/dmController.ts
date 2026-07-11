@@ -18,7 +18,7 @@ import { formatSingleConversationForUser } from "../lib/dmFormatting.ts";
  * for conversations that are NOT currently open. The existing room-scoped events
  * (`dm:new-message`, `messageUpdated`, ...) are preserved for the open chat.
  */
-const emitConversationActivity = (
+export const emitConversationActivity = (
   io: Server | undefined,
   participantIds: (string | mongoose.Types.ObjectId)[],
   payload: {

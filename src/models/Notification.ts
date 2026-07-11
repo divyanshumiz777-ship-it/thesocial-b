@@ -15,7 +15,8 @@ export interface INotification extends Document {
     | "member_joined"
     | "member_left"
     | "follow"
-    | "voice_session_summary";
+    | "voice_session_summary"
+    | "missed_call";
   title: string;
   message: string;
   metadata?: {
@@ -26,6 +27,9 @@ export interface INotification extends Document {
     messageId?: Types.ObjectId;
     requestId?: string;
     inviteCode?: string;
+    conversationId?: Types.ObjectId;
+    callId?: Types.ObjectId;
+    callType?: "voice" | "video";
     [key: string]: any;
   };
   read: boolean;
@@ -61,6 +65,7 @@ const NotificationSchema = new Schema<INotification>(
         "member_left",
         "follow",
         "voice_session_summary",
+        "missed_call",
       ],
       required: true,
       index: true,

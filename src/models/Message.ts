@@ -13,6 +13,14 @@ export interface IAttachment {
   mimeType?: string;
 }
 
+export interface ICallInfo {
+  type: "voice" | "video";
+  outcome: "completed" | "missed" | "rejected" | "cancelled";
+  // Only set for a "completed" call — the others never connected.
+  durationSeconds?: number;
+  caller: Types.ObjectId;
+}
+
 export interface IMessage extends Document {
   content: string;
   formattedContent?: string;
@@ -38,6 +46,11 @@ export interface IMessage extends Document {
     user: Types.ObjectId;
     readAt: Date;
   }>;
+  // Present only on a system-generated 1:1 call-log entry (see
+  // lib/dmCallService.ts) — rendered as a distinct pill in the DM thread
+  // instead of a normal bubble. `content` is still set to a plain-text
+  // fallback for search/notifications, but callInfo is what the UI checks.
+  callInfo?: ICallInfo;
 }
 
 const ReactionSchema = new Schema<IReaction>(
@@ -59,6 +72,20 @@ const AttachmentSchema = new Schema<IAttachment>(
     fileName: { type: String },
     fileSize: { type: Number },
     mimeType: { type: String },
+  },
+  { _id: false }
+);
+
+const CallInfoSchema = new Schema<ICallInfo>(
+  {
+    type: { type: String, enum: ["voice", "video"], required: true },
+    outcome: {
+      type: String,
+      enum: ["completed", "missed", "rejected", "cancelled"],
+      required: true,
+    },
+    durationSeconds: { type: Number },
+    caller: { type: Schema.Types.ObjectId, ref: "User", required: true },
   },
   { _id: false }
 );
@@ -91,6 +118,7 @@ const MessageSchema = new Schema<IMessage>(
         readAt: { type: Date, default: Date.now },
       },
     ],
+    callInfo: { type: CallInfoSchema },
   },
   { timestamps: true }
 );

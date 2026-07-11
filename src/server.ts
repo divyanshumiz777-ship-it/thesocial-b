@@ -24,6 +24,13 @@ import {
   forwardSummarizeVoiceSession,
   isChatServiceEnabled,
 } from "./lib/chatServiceClient.ts";
+import {
+  inviteCall as inviteDMCall,
+  acceptCall as acceptDMCall,
+  rejectCall as rejectDMCall,
+  cancelCall as cancelDMCall,
+  endCall as endDMCall,
+} from "./lib/dmCallService.ts";
 
 /**
  * server.ts — production-grade server bootstrap.
@@ -1014,6 +1021,30 @@ async function startServer() {
           }
         },
       );
+
+      // ── 1:1 DM voice/video calling ───────────────────────────────────────────
+      // Ring/accept/reject/cancel/end lifecycle lives in lib/dmCallService.ts —
+      // these handlers are thin wrappers supplying the server-verified
+      // connectedUserId (never trusted from the payload, same reasoning as
+      // every webrtc:* handler above). Once call:accept fires, the service
+      // module puts exactly the two right sockets in a room named by the
+      // callId; from there the EXISTING webrtc:offer/answer/ice-candidate
+      // handlers above carry the actual peer connection, unchanged.
+      socket.on("call:invite", (data) => {
+        void inviteDMCall(io, socket, connectedUserId, data);
+      });
+      socket.on("call:accept", (data) => {
+        void acceptDMCall(io, socket, connectedUserId, data);
+      });
+      socket.on("call:reject", (data) => {
+        void rejectDMCall(io, connectedUserId, data);
+      });
+      socket.on("call:cancel", (data) => {
+        void cancelDMCall(io, connectedUserId, data);
+      });
+      socket.on("call:end", (data) => {
+        void endDMCall(io, connectedUserId, data);
+      });
 
       // ── Disconnect ──────────────────────────────────────────────────────────
 
