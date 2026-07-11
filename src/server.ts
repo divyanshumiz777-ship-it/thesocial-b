@@ -11,6 +11,9 @@ import { setIoInstance } from "./config/socket.ts";
 import { getAllowedOrigins } from "./lib/corsOrigins.ts";
 import app from "./app.ts";
 import User from "./models/User.ts";
+import VoiceSession from "./models/VoiceSession.ts";
+import VoiceSessionTranscript from "./models/VoiceSessionTranscript.ts";
+import Channel from "./models/Channel.ts";
 
 /**
  * server.ts — production-grade server bootstrap.
@@ -215,6 +218,79 @@ async function startServer() {
       const count = io.sockets.adapter.rooms.get(roomId)?.size ?? 0;
       io.to(roomId).emit("server:member-count", { serverId: roomId, count });
       io.to(roomId).emit("channel:member-count", { channelId: roomId, count });
+    };
+
+    // ── Voice session lifecycle ─────────────────────────────────────────────
+    // Cheap in-memory room-size check first (this runs on every disconnect
+    // for every room the socket was in, most of which aren't voice channels
+    // at all) — only falls through to a DB query on the rare "room just
+    // became empty" transition, and even then a non-voice roomId simply
+    // finds nothing.
+    const startOrJoinVoiceSession = async (
+      channelId: string,
+      userId: string,
+    ): Promise<string | null> => {
+      try {
+        const roomSize = io.sockets.adapter.rooms.get(channelId)?.size ?? 0;
+        if (roomSize <= 1) {
+          const existing = await VoiceSession.findOne({
+            channel: channelId,
+            status: "active",
+          });
+          if (existing) {
+            await VoiceSession.updateOne(
+              { _id: existing._id },
+              { $addToSet: { participants: userId } },
+            );
+            return existing._id.toString();
+          }
+          const channel = await Channel.findById(channelId).lean();
+          if (!channel) return null;
+          const created = await VoiceSession.create({
+            channel: channelId,
+            server: channel.server,
+            participants: [userId],
+            startedAt: new Date(),
+            status: "active",
+          });
+          io.to(channelId).emit("voice:session-started", {
+            channelId,
+            sessionId: created._id.toString(),
+            participantIds: [userId],
+          });
+          return created._id.toString();
+        } else {
+          const updated = await VoiceSession.findOneAndUpdate(
+            { channel: channelId, status: "active" },
+            { $addToSet: { participants: userId } },
+            { new: true },
+          );
+          return updated?._id.toString() ?? null;
+        }
+      } catch (err) {
+        console.error("startOrJoinVoiceSession error:", err);
+        return null;
+      }
+    };
+
+    const endVoiceSessionIfEmpty = async (channelId: string) => {
+      try {
+        const roomSize = io.sockets.adapter.rooms.get(channelId)?.size ?? 0;
+        if (roomSize > 0) return;
+        const session = await VoiceSession.findOneAndUpdate(
+          { channel: channelId, status: "active" },
+          { status: "ended", endedAt: new Date() },
+          { new: true },
+        );
+        if (session) {
+          io.to(channelId).emit("voice:session-ended", {
+            channelId,
+            sessionId: session._id.toString(),
+          });
+        }
+      } catch (err) {
+        console.error("endVoiceSessionIfEmpty error:", err);
+      }
     };
 
     const markOnline = (userId: string) => {
@@ -642,10 +718,18 @@ async function startServer() {
 
       socket.on(
         "webrtc:join",
-        ({ channelId, userId }: { channelId: string; userId: string }) => {
+        async ({ channelId, userId }: { channelId: string; userId: string }) => {
           try {
             socket.join(channelId);
+            joinedRooms.add(channelId);
             io.to(channelId).emit("webrtc:user-joined", { userId });
+            const sessionId = await startOrJoinVoiceSession(channelId, userId);
+            // Told only to the joining socket (not broadcast) — this is how
+            // a client learns which session its own captions belong to,
+            // whether it just started the session or joined an existing one.
+            if (sessionId) {
+              socket.emit("voice:session-active", { channelId, sessionId });
+            }
           } catch {
             /* non-fatal */
           }
@@ -654,10 +738,12 @@ async function startServer() {
 
       socket.on(
         "webrtc:leave",
-        ({ channelId, userId }: { channelId: string; userId: string }) => {
+        async ({ channelId, userId }: { channelId: string; userId: string }) => {
           try {
             socket.leave(channelId);
+            joinedRooms.delete(channelId);
             io.to(channelId).emit("webrtc:user-left", { userId });
+            await endVoiceSessionIfEmpty(channelId);
           } catch {
             /* non-fatal */
           }
@@ -686,6 +772,44 @@ async function startServer() {
         }
       });
 
+      // ── Voice live captions / transcript capture ────────────────────────────
+      // Client-side speech recognition (see VoiceVideoChannel.tsx) emits
+      // interim results (isFinal: false, for the live caption overlay only —
+      // not persisted) and final results (isFinal: true — relayed AND
+      // appended to this session's transcript). There is no server-side
+      // audio access at all in this peer-to-peer WebRTC setup, so
+      // transcription only exists where the browser's own recognition API
+      // is available; this handler just relays/persists text, never audio.
+      socket.on(
+        "voice:caption",
+        async (data: {
+          channelId: string;
+          sessionId: string;
+          speakerId: string;
+          text: string;
+          isFinal: boolean;
+        }) => {
+          try {
+            const { channelId, sessionId, speakerId, text, isFinal } = data;
+            if (!text?.trim()) return;
+            socket.to(channelId).emit("voice:caption", data);
+            if (!isFinal) return;
+
+            await VoiceSessionTranscript.updateOne(
+              { session: sessionId },
+              {
+                $push: {
+                  segments: { speaker: speakerId, text, timestamp: new Date() },
+                },
+              },
+              { upsert: true },
+            );
+          } catch (err) {
+            console.error("voice:caption persist error:", err);
+          }
+        },
+      );
+
       // ── Disconnect ──────────────────────────────────────────────────────────
 
       socket.on("disconnect", (reason) => {
@@ -709,6 +833,12 @@ async function startServer() {
           for (const roomId of joinedRooms) {
             if (roomId !== connectedUserId) {
               emitRoomCounts(roomId);
+              // Best-effort: ends the voice session if this was the last
+              // participant in a Voice channel and they disconnected (tab
+              // close, crash, network drop) without an explicit
+              // webrtc:leave. No-ops for every non-voice room — it's just a
+              // findOneAndUpdate that matches nothing.
+              void endVoiceSessionIfEmpty(roomId);
             }
           }
         } catch (err) {

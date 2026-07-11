@@ -10,6 +10,10 @@ export interface IChannel {
   type: "Text" | "Voice";
   thread: Types.ObjectId[];
   participants: Types.ObjectId[];
+  // Per-channel, admin-opt-in only — defaults off. Gates whether joining this
+  // Voice channel offers live transcription/captions at all. See
+  // VoiceVideoChannel.tsx's consent banner, which reads this flag.
+  transcriptionEnabled: boolean;
 }
 
 const ChannelSchema = new Schema<IChannel>(
@@ -26,6 +30,7 @@ const ChannelSchema = new Schema<IChannel>(
     senders: [{ type: Schema.Types.ObjectId, ref: "User" }],
     thread: [{ type: Schema.Types.ObjectId, ref: "Thread" }],
     participants: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    transcriptionEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

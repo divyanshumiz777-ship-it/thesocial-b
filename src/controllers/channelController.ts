@@ -11,20 +11,40 @@ export const createChannel = async (c: Context) => {
   const { serverId } = c.req.param();
   const body = await c.req.json();
   const { name, categoryId, typeOfChannel } = body;
+  const user = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(serverId)) {
+    return c.json({ error: "Invalid server ID format" }, 400);
+  }
+
   try {
+    const server = await DiscordServer.findById(serverId).lean();
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+
+    // Previously unchecked — any authenticated user (not just server
+    // members) could create a channel in any server. Mirrors updateChannel's
+    // owner-or-admin/mod check, the same weight of structural change.
+    const isAllowed =
+      server.owner.toString() === user?.id ||
+      !!(await ServerMember.exists({
+        server: serverId,
+        user: user?.id,
+        roles: { $in: ["admin", "mod"] },
+      }));
+    if (!isAllowed) return c.json({ error: "Permission denied" }, 403);
+
     const channel = new Channel({
       name,
       server: serverId,
       category: categoryId,
       type: typeOfChannel,
     });
-    const server = await DiscordServer.findById(serverId);
-    if (!server) {
-      return c.json({ error: "Server not found" }, 404);
-    }
     await channel.save();
-    server.channels.push(channel._id);
-    await server.save();
+    await DiscordServer.findByIdAndUpdate(serverId, {
+      $push: { channels: channel._id },
+    });
     return c.json({
       message: "Channel created successfully",
       channel,
