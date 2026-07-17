@@ -48,6 +48,16 @@ interface IUser extends Document {
      * per-VIEWER preference (lives on this user's own doc), never visible to
      * or shared with the other participant. */
     conversationThemes?: Map<string, string>;
+    /** serverId (string) -> per-community notification override. Absence of
+     * a key means "no override, use settings.notifications (the global
+     * default)" — mirrors the conversationThemes pattern above. Opening a
+     * server's "Notification Settings" used to silently write the GLOBAL
+     * field, so changing it for one community changed it for every
+     * community/DM at once; this is what makes it actually server-scoped. */
+    serverNotificationOverrides?: Map<
+      string,
+      { level?: "all" | "mentions" | "none"; email?: boolean; push?: boolean }
+    >;
   };
 }
 
@@ -137,6 +147,18 @@ const UserSchema = new Schema<IUser>({
     mutedServers: [{ type: Schema.Types.ObjectId, ref: "DiscordServer" }],
     mutedConversations: [{ type: Schema.Types.ObjectId, ref: "Conversation" }],
     conversationThemes: { type: Map, of: String, default: undefined },
+    serverNotificationOverrides: {
+      type: Map,
+      of: new Schema(
+        {
+          level: { type: String, enum: ["all", "mentions", "none"] },
+          email: { type: Boolean },
+          push: { type: Boolean },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
   },
 }, { timestamps: true });
 UserSchema.index({ email: 1 }, { unique: true });

@@ -9,8 +9,8 @@ import {
   triggerWebhook,
   setBotPermissions,
   replayWebhookEvent,
+  getWebhookEventLogs,
 } from "../controllers/botController.ts";
-import WebhookEventLog from "../models/WebhookEventLog.ts";
 
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 import { validateInput } from "../middleware/validateInput.ts";
@@ -22,35 +22,27 @@ botRouter.post(
   authMiddleware,
   replayWebhookEvent
 );
-botRouter.get("/webhook-event-logs", authMiddleware, async (c) => {
-  const jwtPayload = c.get("jwtPayload") as { id?: string };
-  const ownerId = jwtPayload?.id;
-  const { event, status } = c.req.query();
-  const query: any = {};
-  if (event) query.event = event;
-  if (status) query.status = status;
-  if (ownerId) query["owner"] = ownerId;
-  const logs = await WebhookEventLog.find(query)
-    .sort({ triggeredAt: -1 })
-    .limit(100);
-  return c.json({ logs }, 200);
-});
+botRouter.get(
+  "/webhook-event-logs/:serverId",
+  authMiddleware,
+  getWebhookEventLogs
+);
 botRouter.post(
   "/bot",
   authMiddleware,
-  validateInput(["name", "permissions"]),
+  validateInput(["name", "permissions", "serverId"]),
   createBot
 );
-botRouter.get("/bots", authMiddleware, listBots);
+botRouter.get("/bots/:serverId", authMiddleware, listBots);
 botRouter.delete("/bot/:id", authMiddleware, deleteBot);
 botRouter.post("/bot/:id/permissions", authMiddleware, setBotPermissions);
 
 botRouter.post(
   "/webhook",
   authMiddleware,
-  validateInput(["url", "events"]),
+  validateInput(["url", "events", "serverId"]),
   createWebhook
 );
-botRouter.get("/webhooks", authMiddleware, listWebhooks);
+botRouter.get("/webhooks/:serverId", authMiddleware, listWebhooks);
 botRouter.delete("/webhook/:id", authMiddleware, deleteWebhook);
-botRouter.post("/webhook/:id/trigger", triggerWebhook);
+botRouter.post("/webhook/:id/trigger", authMiddleware, triggerWebhook);

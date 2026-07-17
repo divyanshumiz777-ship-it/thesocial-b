@@ -10,6 +10,57 @@ import CacheInvalidator from "../lib/cacheInvalidation.ts";
 
 const groupDmController = new Hono();
 
+/** Hard cap on group size — a cheap guard against runaway/abusive add-member calls. */
+const MAX_GROUP_PARTICIPANTS = 100;
+
+/**
+ * Normalize any of: a plain id string, a Mongoose ObjectId, or a populated
+ * user object ({ _id, ... }) → its hex id string. Used both to compare
+ * identities and to address a user's personal socket room.
+ */
+function idString(value: any): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (value._id) return value._id.toString();
+  return typeof value.toString === "function" ? value.toString() : null;
+}
+
+/**
+ * Emit a group event to each given user's PERSONAL room (room name === userId,
+ * auto-joined and JWT-verified in server.ts). Personal-room delivery is what
+ * reaches members who don't currently have the group open — a sidebar in
+ * another tab, and crucially a just-removed member who is no longer in the
+ * group room at all. Every frontend handler for these events is written to be
+ * idempotent, so a member who is BOTH in the group room and their personal
+ * room receiving the same event twice is harmless. We deliberately target
+ * personal rooms rather than io.to(groupId) so the "you were kicked / the
+ * group was deleted / you were added" cases actually reach the affected user.
+ */
+function notifyUsers(userIds: any[], event: string, payload: any): void {
+  const io = getIoInstance();
+  const seen = new Set<string>();
+  for (const raw of userIds) {
+    const id = idString(raw);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    io.to(id).emit(event, payload);
+  }
+}
+
+/** Map a file's MIME type to the attachmentsV2 `type` discriminator the UI
+ * uses (RichMessageDisplay renders images/videos/audio inline, everything
+ * else as a document chip). */
+function inferAttachmentType(
+  mimeType: string
+): "image" | "video" | "gif" | "audio" | "document" {
+  if (!mimeType) return "document";
+  if (mimeType === "image/gif") return "gif";
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("audio/")) return "audio";
+  return "document";
+}
+
 async function verifyJWT(token: string): Promise<any> {
   try {
     const secret = process.env.JWT_SECRET as string;
@@ -164,6 +215,17 @@ export const addMembers = async (c: Context) => {
       (id: string) => !group.participants.some((p: any) => p.toString() === id)
     );
 
+    if (newMembers.length === 0) {
+      return c.json({ error: "Those users are already in the group" }, 400);
+    }
+
+    if (group.participants.length + newMembers.length > MAX_GROUP_PARTICIPANTS) {
+      return c.json(
+        { error: `Groups can have at most ${MAX_GROUP_PARTICIPANTS} members` },
+        400
+      );
+    }
+
     group.participants.push(
       ...newMembers.map((id: string) => new mongoose.Types.ObjectId(id))
     );
@@ -171,8 +233,10 @@ export const addMembers = async (c: Context) => {
 
     await group.populate("participants", "name email profilePic");
 
-    const io = getIoInstance();
-    io.to(groupId).emit("group-dm:members-added", {
+    // Notify every current participant (existing members' lists update; the
+    // newly-added members — who were NOT in the group room — get the group
+    // pushed into their sidebar via their personal room).
+    notifyUsers(group.participants, "group-dm:members-added", {
       groupId,
       newMembers,
       allMembers: group.participants,
@@ -214,8 +278,31 @@ export const removeMember = async (c: Context) => {
       return c.json({ error: "This group is disabled" }, 403);
     }
 
+    if (memberId === userId) {
+      return c.json(
+        { error: "Use “Leave group” to remove yourself" },
+        400
+      );
+    }
+
     if (memberId === group.owner?.toString()) {
-      return c.json({ error: "Cannot remove group owner" }, 400);
+      return c.json({ error: "The group owner can't be removed" }, 400);
+    }
+
+    const targetIsAdmin = group.admins?.some(
+      (a: any) => a.toString() === memberId
+    );
+    // An admin can remove regular members, but only the owner can remove
+    // another admin. (Owner removal is already blocked above.)
+    if (targetIsAdmin && !isOwner) {
+      return c.json({ error: "Only the owner can remove an admin" }, 403);
+    }
+
+    const wasMember = group.participants.some(
+      (p: any) => p.toString() === memberId
+    );
+    if (!wasMember) {
+      return c.json({ error: "That person isn't in this group" }, 404);
     }
 
     group.participants = group.participants.filter(
@@ -229,12 +316,17 @@ export const removeMember = async (c: Context) => {
     await group.save();
     await group.populate("participants", "name email profilePic");
 
-    const io = getIoInstance();
-    io.to(groupId).emit("group-dm:member-removed", {
-      groupId,
-      removedMemberId: memberId,
-      remainingMembers: group.participants,
-    });
+    // Remaining members' lists update; the removed member (no longer in the
+    // group room) is told via their personal room so their own UI reacts.
+    notifyUsers(
+      [...group.participants, memberId],
+      "group-dm:member-removed",
+      {
+        groupId,
+        removedMemberId: memberId,
+        remainingMembers: group.participants,
+      }
+    );
 
     return c.json({ success: true, group });
   } catch (error) {
@@ -286,8 +378,7 @@ export const makeAdmin = async (c: Context) => {
     group.admins.push(new mongoose.Types.ObjectId(memberId));
     await group.save();
 
-    const io = getIoInstance();
-    io.to(groupId).emit("group-dm:member-promoted", {
+    notifyUsers(group.participants, "group-dm:member-promoted", {
       groupId,
       memberId,
       promotedBy: userId,
@@ -329,13 +420,18 @@ export const removeAdmin = async (c: Context) => {
       return c.json({ error: "This group is disabled" }, 403);
     }
 
+    // The owner is always effectively an admin — don't let them be demoted
+    // out of the admins list (keeps role state coherent).
+    if (memberId === group.owner?.toString()) {
+      return c.json({ error: "The group owner can't be demoted" }, 400);
+    }
+
     if (group.admins) {
       group.admins = group.admins.filter((a: any) => a.toString() !== memberId);
       await group.save();
     }
 
-    const io = getIoInstance();
-    io.to(groupId).emit("group-dm:member-demoted", {
+    notifyUsers(group.participants, "group-dm:member-demoted", {
       groupId,
       memberId,
       demotedBy: userId,
@@ -369,14 +465,18 @@ export const leaveGroup = async (c: Context) => {
     if (group.owner?.toString() === userId) {
       return c.json(
         {
-          error: "Owner cannot leave. Transfer ownership or delete the group.",
+          error:
+            "As the owner you can't leave — delete the group instead.",
         },
         400
       );
     }
 
-    if (group.isDisabled) {
-      return c.json({ error: "This group is disabled" }, 403);
+    const wasMember = group.participants.some(
+      (p: any) => p.toString() === userId
+    );
+    if (!wasMember) {
+      return c.json({ error: "You're not a member of this group" }, 400);
     }
 
     group.participants = group.participants.filter(
@@ -389,8 +489,9 @@ export const leaveGroup = async (c: Context) => {
 
     await group.save();
 
-    const io = getIoInstance();
-    io.to(groupId).emit("group-dm:member-left", {
+    // Remaining members' lists update; the leaver's own sidebar drops the
+    // group via their personal room (they've left the group room).
+    notifyUsers([...group.participants, userId], "group-dm:member-left", {
       groupId,
       userId,
       remainingCount: group.participants.length,
@@ -433,15 +534,20 @@ export const updateGroup = async (c: Context) => {
       return c.json({ error: "Only owner can disable/enable group" }, 403);
     }
 
-    if (name) group.name = name.trim();
+    if (name !== undefined) {
+      const trimmed = name.trim();
+      if (!trimmed) {
+        return c.json({ error: "Group name can't be empty" }, 400);
+      }
+      group.name = trimmed;
+    }
     if (description !== undefined) group.description = description;
     if (icon !== undefined) group.icon = icon;
     if (isDisabled !== undefined) group.isDisabled = isDisabled;
 
     await group.save();
 
-    const io = getIoInstance();
-    io.to(groupId).emit("group-dm:updated", {
+    notifyUsers(group.participants, "group-dm:updated", {
       groupId,
       name: group.name,
       description: group.description,
@@ -476,15 +582,18 @@ export const deleteGroup = async (c: Context) => {
     if (!group) return c.json({ error: "Group not found" }, 404);
 
     if (group.owner?.toString() !== userId) {
-      return c.json({ error: "Only group owner can delete group" }, 403);
+      return c.json({ error: "Only the group owner can delete the group" }, 403);
     }
 
-    await Message.deleteMany({ groupId });
+    // Capture the recipient set BEFORE deletion — after findByIdAndDelete the
+    // participants are gone, and members who don't have the group open aren't
+    // in the group room, so we fan out to each one's personal room.
+    const recipients = [...group.participants];
 
+    await Message.deleteMany({ groupId });
     await Group.findByIdAndDelete(groupId);
 
-    const io = getIoInstance();
-    io.to(groupId).emit("group-dm:deleted", { groupId });
+    notifyUsers(recipients, "group-dm:deleted", { groupId });
 
     return c.json({ success: true });
   } catch (error) {
@@ -503,12 +612,25 @@ export const getGroupMembers = async (c: Context) => {
 
     const { groupId } = c.req.param();
 
+    const userId = getUserIdFromJWT(decoded);
+    if (!userId) return c.json({ error: "Invalid token payload" }, 401);
+
     const group = await Group.findById(groupId).populate(
       "participants",
       "name email profilePic status lastSeen"
     );
 
     if (!group) return c.json({ error: "Group not found" }, 404);
+
+    // Membership check — the member list includes emails, so only participants
+    // (or the owner) may read it. Previously any authenticated user could
+    // enumerate any group's members by id.
+    const isMember =
+      group.owner?.toString() === userId ||
+      (group.participants as any[]).some((p) => p._id.toString() === userId);
+    if (!isMember) {
+      return c.json({ error: "You are not a member of this group" }, 403);
+    }
 
     const members = (group.participants as any[]).map((p) => ({
       _id: p._id,
@@ -624,6 +746,18 @@ async function getGroupOrConversation(groupId: string) {
 
 export const getGroup = async (c: Context) => {
   try {
+    // Auth + membership required. This endpoint returns participants' emails
+    // and the last 50 messages; it previously had NO token check at all, so
+    // anyone who knew/guessed a groupId could read all of it (IDOR).
+    const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) return c.json({ error: "Unauthorized" }, 401);
+
+    const decoded = await verifyJWT(token);
+    if (!decoded) return c.json({ error: "Invalid token" }, 401);
+
+    const userId = getUserIdFromJWT(decoded);
+    if (!userId) return c.json({ error: "Invalid token payload" }, 401);
+
     const { groupId } = c.req.param();
 
     if (!mongoose.Types.ObjectId.isValid(groupId)) {
@@ -633,6 +767,14 @@ export const getGroup = async (c: Context) => {
     const { source, doc: group } = await getGroupOrConversation(groupId);
 
     if (!group) return c.json({ error: "Group not found" }, 404);
+
+    // participants are raw ObjectIds at this point (populate happens below).
+    const isMember =
+      group.owner?.toString() === userId ||
+      (group.participants as any[]).some((p) => p.toString() === userId);
+    if (!isMember) {
+      return c.json({ error: "You are not a member of this group" }, 403);
+    }
 
     if (source === "group" || source === "migrated") {
       await group.populate(
@@ -666,54 +808,70 @@ export const sendMessage = async (c: Context) => {
     const { groupId } = c.req.param();
 
     let content = "";
-    let fileUrl: string | null = null;
+    // Attachments are stored as attachmentsV2 (the shape the whole app
+    // renders — see MessageBubble/RichMessageDisplay and dmController). The
+    // group send path previously wrote a single `fileUrl` string, which no
+    // renderer reads, so uploaded images/files never showed.
+    const attachmentsV2: Array<Record<string, unknown>> = [];
 
     const contentType = c.req.header("content-type") || "";
 
-    if (contentType.includes("application/json")) {
-      const body = await c.req.json();
-      content = body.content || "";
-      fileUrl = body.fileUrl || null;
-    } else if (contentType.includes("multipart/form-data")) {
-      const body = await c.req.parseBody();
+    const addUrlAttachments = (body: any) => {
+      if (body?.gifUrl) {
+        attachmentsV2.push({
+          url: body.gifUrl,
+          type: "gif",
+          mimeType: "image/gif",
+        });
+      }
+      if (Array.isArray(body?.attachments)) {
+        for (const a of body.attachments) if (a && a.url) attachmentsV2.push(a);
+      }
+    };
+
+    if (contentType.includes("multipart/form-data")) {
+      // { all: true } so multiple files sent under the same "attachments"
+      // field arrive as an array rather than just the last one.
+      const body = await c.req.parseBody({ all: true });
       content = (body.content as string) || "";
 
-      const file = body.attachments as File | File[] | undefined;
-      if (file) {
+      const raw = body.attachments;
+      const files = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      for (const f of files) {
+        if (!(f instanceof File)) continue;
         try {
-          const files = Array.isArray(file) ? file : [file];
-          for (const f of files) {
-            if (f instanceof File) {
-              const arrayBuffer = await f.arrayBuffer();
-              const buffer = Buffer.from(arrayBuffer);
-
-              const uploadResult = await uploadOnCloudinary(buffer, {
-                folder: "group-messages",
-                resource_type: "auto",
-              });
-
-              if (uploadResult?.url) {
-                fileUrl = uploadResult.url;
-                break;
-              }
-            }
+          const buffer = Buffer.from(await f.arrayBuffer());
+          const uploadResult = await uploadOnCloudinary(buffer, {
+            folder: "group-messages",
+            resource_type: "auto",
+          });
+          const url = uploadResult?.secure_url || uploadResult?.url;
+          if (url) {
+            attachmentsV2.push({
+              url,
+              type: inferAttachmentType(f.type),
+              fileName: f.name,
+              fileSize: f.size,
+              mimeType: f.type,
+            });
           }
         } catch (error) {
-          console.error("Error uploading file:", error);
+          console.error("Error uploading group attachment:", error);
         }
       }
     } else {
+      // JSON (plain text, gifs/stickers, or pre-uploaded attachment metadata).
       try {
         const body = await c.req.json();
         content = body.content || "";
-        fileUrl = body.fileUrl || null;
+        addUrlAttachments(body);
       } catch {
-        const body = await c.req.parseBody();
+        const body = await c.req.parseBody({ all: true });
         content = (body.content as string) || "";
       }
     }
 
-    if (!content && !fileUrl) {
+    if (!content && attachmentsV2.length === 0) {
       return c.json({ error: "Message content is required" }, 400);
     }
 
@@ -743,7 +901,7 @@ export const sendMessage = async (c: Context) => {
     const message = new Message({
       sender: new mongoose.Types.ObjectId(userId as string),
       content: content || "",
-      fileUrl: fileUrl || null,
+      attachmentsV2,
       groupId: new mongoose.Types.ObjectId(groupId),
       createdAt: new Date(),
     });
@@ -942,6 +1100,77 @@ const toggleGroupReaction = async (c: Context) => {
   }
 };
 
+/**
+ * Marks every message in a group as delivered to the calling user — called
+ * when their client opens the group chat. Mirrors markMessagesAsRead's exact
+ * per-message emit pattern (featureController.ts) so a group message's
+ * sender learns about delivery through the same "message:delivered" channel
+ * their personal room already receives, just keyed to their own room instead
+ * of a new one. Unlike 1:1 DMs (a single conversation-level lastDeliveredAt
+ * high-water-mark), a group has multiple recipients, so delivery has to be
+ * tracked per-message (deliveredTo) to know when ALL of them have it.
+ */
+export const markGroupDelivered = async (c: Context) => {
+  try {
+    const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) return c.json({ error: "Unauthorized" }, 401);
+    const decoded = await verifyJWT(token);
+    if (!decoded) return c.json({ error: "Invalid token" }, 401);
+    const userId = getUserIdFromJWT(decoded);
+    if (!userId) return c.json({ error: "Invalid token payload" }, 401);
+
+    const { groupId } = c.req.param();
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return c.json({ error: "Invalid group ID" }, 400);
+    }
+
+    const group = await Group.findById(groupId).select("participants owner");
+    if (!group) return c.json({ error: "Group not found" }, 404);
+
+    const isMember =
+      group.owner?.toString() === userId ||
+      group.participants.some((p: any) => p.toString() === userId);
+    if (!isMember) {
+      return c.json({ error: "Not a member of this group" }, 403);
+    }
+
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+
+    // Only messages from OTHER senders, not already delivered to this user —
+    // own messages don't need a self-delivery ack, and this keeps the update
+    // (and the resulting emits) limited to what actually changed.
+    const undelivered = await Message.find({
+      groupId: group._id,
+      sender: { $ne: userObjectId },
+      deliveredTo: { $ne: userObjectId },
+    }).select("_id sender");
+
+    if (undelivered.length === 0) {
+      return c.json({ success: true, count: 0 }, 200);
+    }
+
+    await Message.updateMany(
+      { _id: { $in: undelivered.map((m) => m._id) } },
+      { $addToSet: { deliveredTo: userObjectId } }
+    );
+
+    const io = getIoInstance();
+    for (const msg of undelivered) {
+      if (!msg.sender) continue;
+      io.to(msg.sender.toString()).emit("message:delivered", {
+        groupId,
+        messageId: msg._id,
+        userId,
+      });
+    }
+
+    return c.json({ success: true, count: undelivered.length }, 200);
+  } catch (error) {
+    console.error("Error marking group messages delivered:", error);
+    return c.json({ error: "Failed to mark messages delivered" }, 500);
+  }
+};
+
 export const getGroupMessages = async (c: Context) => {
   try {
     const token = c.req.header("Authorization")?.replace("Bearer ", "");
@@ -951,9 +1180,12 @@ export const getGroupMessages = async (c: Context) => {
     if (!decoded) return c.json({ error: "Invalid token" }, 401);
 
     const { groupId } = c.req.param();
-    const page = Math.max(1, parseInt(c.req.query("page") || "1"));
-    const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "50")));
-    const skip = (page - 1) * limit;
+    const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "30")));
+    // Cursor for "load older": a message _id; we return the page of messages
+    // strictly older than it. Absent → the newest page. This is what powers
+    // WhatsApp-style scroll-up loading (open on the newest, page backwards),
+    // replacing the old page/skip model that opened on the OLDEST messages.
+    const before = c.req.query("before");
 
     if (!mongoose.Types.ObjectId.isValid(groupId)) {
       return c.json({ error: "Invalid group ID" }, 400);
@@ -972,14 +1204,27 @@ export const getGroupMessages = async (c: Context) => {
       return c.json({ error: "Not a member of this group" }, 403);
     }
 
-    const messages = await Message.find({ groupId: group._id })
-      .sort({ createdAt: 1 })
-      .skip(skip)
-      .limit(limit)
+    const query: Record<string, unknown> = { groupId: group._id };
+    if (before && mongoose.Types.ObjectId.isValid(before)) {
+      query._id = { $lt: new mongoose.Types.ObjectId(before) };
+    }
+
+    // Fetch newest-first (limit + 1 to detect more), then hand back in
+    // chronological order so the client can append the page above what it
+    // already has. _id is monotonic with creation time, so it doubles as the
+    // sort key and the cursor (matches the 1:1 DM getDm pattern).
+    const rows = await Message.find(query)
+      .sort({ _id: -1 })
+      .limit(limit + 1)
       .populate("sender", "name email profilePic username")
       .lean();
 
-    return c.json(messages);
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const messages = pageRows.reverse(); // oldest → newest for display
+    const nextCursor = messages.length > 0 ? String(messages[0]._id) : null;
+
+    return c.json({ messages, hasMore, nextCursor });
   } catch (error) {
     console.error("Error fetching group messages:", error);
     return c.json({ error: "Failed to fetch messages" }, 500);
@@ -998,6 +1243,7 @@ groupDmController.put("/:groupId/update", updateGroup);
 groupDmController.delete("/:groupId/delete", deleteGroup);
 groupDmController.get("/:groupId/members", getGroupMembers);
 groupDmController.get("/:groupId/messages", getGroupMessages);
+groupDmController.put("/:groupId/mark-delivered", markGroupDelivered);
 groupDmController.post("/:groupId/messages", sendMessage);
 groupDmController.put("/:groupId/messages/:messageId", editGroupMessage);
 groupDmController.delete("/:groupId/messages/:messageId", deleteGroupMessage);

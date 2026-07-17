@@ -34,7 +34,16 @@ export const searchServers = async (c: Context) => {
     return c.json({ error: "Query required" }, 400);
   }
   try {
-    const filter = { name: { $regex: query, $options: "i" } };
+    // Private/invite-only servers, and any server whose owner opted out of
+    // search via Privacy Settings, must never surface here — this endpoint
+    // used to return every server regardless of visibility, leaking private
+    // servers' name/description/owner/member-count to anyone who could guess
+    // a search term.
+    const filter = {
+      name: { $regex: query, $options: "i" },
+      visibility: "public",
+      "privacy.showInSearch": { $ne: false },
+    };
     const total = await DiscordServer.countDocuments(filter);
     const docs = await DiscordServer.find(filter)
       .sort({ updatedAt: -1 })
@@ -75,8 +84,22 @@ export const searchServers = async (c: Context) => {
 };
 export const getAuditLogs = async (c: Context) => {
   const { serverId } = c.req.param();
+  const user = c.get("user");
   if (!mongoose.Types.ObjectId.isValid(serverId)) {
     return c.json({ error: "Invalid server ID format" }, 400);
+  }
+  const server = await DiscordServer.findById(serverId).select("owner").lean();
+  if (!server) return c.json({ error: "Server not found" }, 404);
+  const isOwner = server.owner.toString() === user.id;
+  const isAdmin =
+    !isOwner &&
+    !!(await ServerMember.exists({
+      server: serverId,
+      user: user.id,
+      roles: { $in: ["owner", "admin", "mod"] },
+    }));
+  if (!isOwner && !isAdmin) {
+    return c.json({ error: "Permission denied" }, 403);
   }
   const logs = await AuditLog.find({ server: serverId })
     .sort({ createdAt: -1 })
@@ -200,23 +223,26 @@ export const createServer = async (
       { session, ordered: true }
     );
 
-    await Promise.all([
-      Category.findByIdAndUpdate(
-        notesCategory._id,
-        { $push: { channels: notesChannel._id } },
-        { session }
-      ),
-      Category.findByIdAndUpdate(
-        socialCategory._id,
-        { $push: { channels: socialChannel._id } },
-        { session }
-      ),
-      Category.findByIdAndUpdate(
-        doubtsCategory._id,
-        { $push: { channels: doubtsChannel._id } },
-        { session }
-      ),
-    ]);
+    // Sequential, not Promise.all — a single session/transaction only
+    // supports one in-flight operation at a time; running these concurrently
+    // on the shared `session` intermittently throws "Given transaction
+    // number N ... does not match any in-progress transactions" (same class
+    // of bug fixed in deleteServer below).
+    await Category.findByIdAndUpdate(
+      notesCategory._id,
+      { $push: { channels: notesChannel._id } },
+      { session }
+    );
+    await Category.findByIdAndUpdate(
+      socialCategory._id,
+      { $push: { channels: socialChannel._id } },
+      { session }
+    );
+    await Category.findByIdAndUpdate(
+      doubtsCategory._id,
+      { $push: { channels: doubtsChannel._id } },
+      { session }
+    );
 
     newServer.categories = [
       notesCategory._id,
@@ -449,44 +475,49 @@ export const deleteServer = async (
     );
   }
 
+  // Read BEFORE the transaction starts — a read issued inside it inherits the
+  // connection's primaryPreferred read preference, which MongoDB rejects
+  // ("Read preference in a transaction must be primary"), the same
+  // constraint documented in createServer above. These are just gathering
+  // ids to cascade-delete by, so reading them outside the transaction is fine.
+  const channelIds = await Channel.find({ server: serverId }).select("_id");
+  const channelIdList = channelIds.map((c: any) => c._id);
+
+  const voiceSessionIds = await VoiceSession.find({ server: serverId }).distinct(
+    "_id"
+  );
+
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
 
-    const channelIds = await Channel.find({ server: serverId })
-      .select("_id")
-      .session(session);
-    const channelIdList = channelIds.map((c: any) => c._id);
+    // Sequential, not Promise.all — a single MongoDB session/transaction can
+    // only have ONE in-flight operation at a time. Firing several
+    // deleteMany() calls that share the same `session` concurrently races on
+    // the transaction's internal txn-number tracking and fails with
+    // "does not match any in-progress transactions" (this used to make
+    // deleting a server fail unconditionally, every time).
+    await Message.deleteMany({ server: serverId }, { session });
+    await Thread.deleteMany({ server: serverId }, { session });
+    if (channelIdList.length) {
+      await ChannelReadStatus.deleteMany(
+        { channel: { $in: channelIdList } },
+        { session }
+      );
+    }
+    await Invite.deleteMany({ server: serverId }, { session });
+    await AuditLog.deleteMany({ server: serverId }, { session });
+    await Notification.deleteMany({ "metadata.serverId": serverId }, { session });
+    if (voiceSessionIds.length) {
+      await VoiceSessionTranscript.deleteMany(
+        { session: { $in: voiceSessionIds } },
+        { session }
+      );
+    }
+    await VoiceSession.deleteMany({ server: serverId }, { session });
 
-    const voiceSessionIds = await VoiceSession.find({ server: serverId })
-      .session(session)
-      .distinct("_id");
-
-    await Promise.all([
-      Message.deleteMany({ server: serverId }, { session }),
-      Thread.deleteMany({ server: serverId }, { session }),
-      channelIdList.length
-        ? ChannelReadStatus.deleteMany(
-            { channel: { $in: channelIdList } },
-            { session }
-          )
-        : Promise.resolve(),
-      Invite.deleteMany({ server: serverId }, { session }),
-      AuditLog.deleteMany({ server: serverId }, { session }),
-      Notification.deleteMany({ "metadata.serverId": serverId }, { session }),
-      voiceSessionIds.length
-        ? VoiceSessionTranscript.deleteMany(
-            { session: { $in: voiceSessionIds } },
-            { session }
-          )
-        : Promise.resolve(),
-      VoiceSession.deleteMany({ server: serverId }, { session }),
-    ]);
-
-    await Promise.all([
-      Channel.deleteMany({ server: serverId }, { session }),
-      Category.deleteMany({ server: serverId }, { session }),
-    ]);
+    await Channel.deleteMany({ server: serverId }, { session });
+    await Category.deleteMany({ server: serverId }, { session });
 
     await User.updateMany(
       { servers: serverId },
@@ -551,6 +582,11 @@ export const createInvite = async (
     const inviteLink = `${
       process.env.FRONTEND_URL || "http://localhost:3000"
     }/invite/${code}`;
+
+    const io = c.get("io" as any) as Server | undefined;
+    if (io) {
+      io.to(serverId.toString()).emit("invites:updated", { serverId });
+    }
 
     return c.json({ inviteLink, invite: populatedInvite }, 201);
   } catch (error) {
@@ -637,6 +673,13 @@ export const deleteInvite = async (
 
     await Invite.findByIdAndDelete(inviteId);
 
+    const io = c.get("io" as any) as Server | undefined;
+    if (io) {
+      io.to(invite.server.toString()).emit("invites:updated", {
+        serverId: invite.server.toString(),
+      });
+    }
+
     return c.json({ message: "Invite deleted successfully" }, 200);
   } catch (error) {
     console.error("Error deleting invite:", error);
@@ -709,9 +752,12 @@ export const getAllServers = async (c: Context) => {
     const limit = parseInt(c.req.query("limit") || "10", 10);
     const skip = (page - 1) * limit;
 
-    const totalServers = await DiscordServer.countDocuments();
+    // Same visibility/privacy rule as searchServers — a directory listing
+    // must not include private servers just because no query was given.
+    const filter = { visibility: "public", "privacy.showInSearch": { $ne: false } };
+    const totalServers = await DiscordServer.countDocuments(filter);
 
-    const servers = await DiscordServer.find()
+    const servers = await DiscordServer.find(filter)
       .populate("owner", "name profilePic")
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -790,6 +836,7 @@ export const getUnreadCounts = async (c: Context) => {
 
 export const editMemberRole = async (c: Context) => {
   const { serverId } = c.req.param();
+  const actor = c.get("user");
   const body = await c.req.json();
   const { users, roles } = body;
   if (!mongoose.Types.ObjectId.isValid(serverId))
@@ -800,10 +847,38 @@ export const editMemberRole = async (c: Context) => {
       400
     );
   }
-  users.forEach((user) => {
+  for (const user of users) {
     if (!mongoose.Types.ObjectId.isValid(user))
       return c.json({ error: "Invalid user ID format" }, 400);
-  });
+  }
+
+  const server = await DiscordServer.findById(serverId).select("owner").lean();
+  if (!server) return c.json({ error: "Server not found" }, 404);
+  const isOwner = server.owner.toString() === actor.id;
+  const isAdmin =
+    !isOwner &&
+    !!(await ServerMember.exists({
+      server: serverId,
+      user: actor.id,
+      roles: { $in: ["owner", "admin"] },
+    }));
+  if (!isOwner && !isAdmin) {
+    return c.json({ error: "Permission denied" }, 403);
+  }
+  // Only the actual server owner may grant/hold the "owner" role — otherwise
+  // any admin could hand themselves (or anyone else) ownership through this
+  // endpoint. The owner's own role is also fixed here: they always stay
+  // "owner" and can't be demoted through this bulk-role editor (use a
+  // dedicated ownership-transfer flow for that).
+  if (roles.includes("owner") && !isOwner) {
+    return c.json(
+      { error: "Only the server owner can grant the owner role." },
+      403
+    );
+  }
+  if (users.includes(server.owner.toString()) && !roles.includes("owner")) {
+    return c.json({ error: "The server owner's role can't be changed." }, 403);
+  }
 
   try {
     const result = await DiscordServer.updateOne(
@@ -852,15 +927,15 @@ export const editMemberRole = async (c: Context) => {
 };
 export const addMember = async (c: Context) => {
   const { serverId } = c.req.param();
+  const actorId = c.get("user").id;
   const body = await c.req.json();
-  const { userId, role, newMemberId } = body;
+  const { role, newMemberId } = body;
   if (
     !mongoose.Types.ObjectId.isValid(serverId) ||
-    !mongoose.Types.ObjectId.isValid(userId) ||
     !mongoose.Types.ObjectId.isValid(newMemberId)
   )
     return c.json(
-      { error: "Invalid server or user ID format or member ID format" },
+      { error: "Invalid server or member ID format" },
       400
     );
   try {
@@ -869,7 +944,7 @@ export const addMember = async (c: Context) => {
       return c.json({ error: "User to be added does not exist." }, 404);
     }
     const [hasPermission, alreadyMember, server] = await Promise.all([
-      ServerMember.exists({ server: serverId, user: userId, roles: "add member" }),
+      checkPermission(serverId, actorId, "add member"),
       ServerMember.exists({ server: serverId, user: newMemberId }),
       DiscordServer.findById(serverId),
     ]);
@@ -908,22 +983,24 @@ export const addMember = async (c: Context) => {
 };
 export const removeMember = async (c: Context) => {
   const { serverId } = c.req.param();
-  const { userId, memberToRemoveId } = await c.req.json();
+  const actorId = c.get("user").id;
+  const { memberToRemoveId } = await c.req.json();
 
   if (
-    !mongoose.Types.ObjectId.isValid(userId) ||
     !mongoose.Types.ObjectId.isValid(serverId) ||
     !mongoose.Types.ObjectId.isValid(memberToRemoveId)
   ) {
-    return c.json({ error: "Invalid user, server, or member ID format" }, 400);
+    return c.json({ error: "Invalid server or member ID format" }, 400);
   }
 
   try {
-    const hasPermission = await ServerMember.exists({
-      server: serverId,
-      user: userId,
-      roles: "remove member",
-    });
+    const server = await DiscordServer.findById(serverId).select("owner").lean();
+    if (!server) return c.json({ error: "Server not found" }, 404);
+    if (server.owner.toString() === memberToRemoveId) {
+      return c.json({ error: "The server owner can't be removed." }, 403);
+    }
+
+    const hasPermission = await checkPermission(serverId, actorId, "remove member");
     if (!hasPermission) {
       return c.json(
         {
@@ -962,19 +1039,25 @@ export const removeMember = async (c: Context) => {
 
 export const banMember = async (c: Context) => {
   const { serverId } = c.req.param();
-  const { userId, reason, userToBanId } = await c.req.json();
+  const actorId = c.get("user").id;
+  const { reason, userToBanId } = await c.req.json();
   const io: Server = c.get("io");
   if (
     !mongoose.Types.ObjectId.isValid(serverId) ||
-    !mongoose.Types.ObjectId.isValid(userId) ||
     !mongoose.Types.ObjectId.isValid(userToBanId)
   ) {
     return c.json({ error: "Invalid ID format" }, 400);
   }
   if (!reason) return c.json({ error: "Reason is required" }, 400);
   try {
+    const server = await DiscordServer.findById(serverId).select("owner").lean();
+    if (!server) return c.json({ error: "Server not found" }, 404);
+    if (server.owner.toString() === userToBanId) {
+      return c.json({ error: "The server owner can't be banned." }, 403);
+    }
+
     const [hasPermission, userToBanExists, userAlreadyBanned] = await Promise.all([
-      ServerMember.exists({ server: serverId, user: userId, roles: "ban member" }),
+      checkPermission(serverId, actorId, "ban member"),
       User.findById(userToBanId).lean(),
       ServerMember.exists({ server: serverId, user: userToBanId, "banned.isBanned": true }),
     ]);
@@ -997,7 +1080,7 @@ export const banMember = async (c: Context) => {
           "members.$.banned": {
             isBanned: true,
             reason: reason,
-            bannedBy: userId,
+            bannedBy: actorId,
           },
         },
       },
@@ -1007,7 +1090,7 @@ export const banMember = async (c: Context) => {
 
     await ServerMember.updateOne(
       { server: serverId, user: userToBanId },
-      { $set: { banned: { isBanned: true, reason, bannedBy: userId } } }
+      { $set: { banned: { isBanned: true, reason, bannedBy: actorId } } }
     );
 
     await User.findOneAndUpdate(
@@ -1031,17 +1114,17 @@ export const banMember = async (c: Context) => {
 
 export const unBanMember = async (c: Context) => {
   const { serverId } = c.req.param();
-  const { userId, userToUnbanId } = await c.req.json();
+  const actorId = c.get("user").id;
+  const { userToUnbanId } = await c.req.json();
   if (
     !mongoose.Types.ObjectId.isValid(serverId) ||
-    !mongoose.Types.ObjectId.isValid(userId) ||
     !mongoose.Types.ObjectId.isValid(userToUnbanId)
   )
     return c.json({ error: "Invalid ID format" }, 400);
 
   try {
     const [hasPermission, userExists, userBanned] = await Promise.all([
-      ServerMember.exists({ server: serverId, user: userId, roles: "unban member" }),
+      checkPermission(serverId, actorId, "unban member"),
       User.findById(userToUnbanId).lean(),
       ServerMember.exists({ server: serverId, user: userToUnbanId, "banned.isBanned": true }),
     ]);
@@ -1073,12 +1156,12 @@ export const unBanMember = async (c: Context) => {
 
 export const muteMember = async (c: Context) => {
   const { serverId } = c.req.param();
-  const { userId, reason, userToMuteId, duration } = await c.req.json();
+  const actorId = c.get("user").id;
+  const { reason, userToMuteId, duration } = await c.req.json();
   const io: Server = c.get("io");
 
   if (
     !mongoose.Types.ObjectId.isValid(serverId) ||
-    !mongoose.Types.ObjectId.isValid(userId) ||
     !mongoose.Types.ObjectId.isValid(userToMuteId)
   )
     return c.json({ error: "Invalid ID format" }, 400);
@@ -1087,8 +1170,14 @@ export const muteMember = async (c: Context) => {
     return c.json({ error: "Duration (in ms) is required" }, 400);
 
   try {
+    const server = await DiscordServer.findById(serverId).select("owner").lean();
+    if (!server) return c.json({ error: "Server not found" }, 404);
+    if (server.owner.toString() === userToMuteId) {
+      return c.json({ error: "The server owner can't be muted." }, 403);
+    }
+
     const [hasPermission, memberToMute, userAlreadyMuted] = await Promise.all([
-      ServerMember.exists({ server: serverId, user: userId, roles: "mute member" }),
+      checkPermission(serverId, actorId, "mute member"),
       ServerMember.exists({ server: serverId, user: userToMuteId }),
       ServerMember.exists({ server: serverId, user: userToMuteId, "muted.isMuted": true }),
     ]);
@@ -1113,7 +1202,7 @@ export const muteMember = async (c: Context) => {
           "members.$.muted": {
             isMuted: true,
             reason: reason,
-            mutedBy: userId,
+            mutedBy: actorId,
             expiresAt: expiresAt,
           },
         },
@@ -1122,7 +1211,7 @@ export const muteMember = async (c: Context) => {
     );
     await ServerMember.updateOne(
       { server: serverId, user: userToMuteId },
-      { $set: { muted: { isMuted: true, reason, mutedBy: userId, expiresAt } } }
+      { $set: { muted: { isMuted: true, reason, mutedBy: actorId, expiresAt } } }
     );
     await invalidateAfterServerUpdate(serverId);
 
@@ -1139,21 +1228,17 @@ export const muteMember = async (c: Context) => {
 };
 export const unmuteMember = async (c: Context) => {
   const { serverId } = c.req.param();
-  const { userId, userToUnmuteId } = await c.req.json();
+  const actorId = c.get("user").id;
+  const { userToUnmuteId } = await c.req.json();
   const io: Server = c.get("io");
   if (
     !mongoose.Types.ObjectId.isValid(serverId) ||
-    !mongoose.Types.ObjectId.isValid(userId) ||
     !mongoose.Types.ObjectId.isValid(userToUnmuteId)
   )
     return c.json({ error: "Invalid ID format" }, 400);
 
   try {
-    const hasPermission = await ServerMember.exists({
-      server: serverId,
-      user: userId,
-      roles: "unmute member",
-    });
+    const hasPermission = await checkPermission(serverId, actorId, "unmute member");
     if (!hasPermission)
       return c.json(
         { error: "Action failed. Check if the user exists and is muted." },
@@ -1262,13 +1347,19 @@ export const requestJoinServer = async (
     });
 
     const io = c.get("io" as any) as Server | undefined;
-    if (io && notification) {
-      sendNotificationViaSocket(io, server.owner.toString(), notification);
+    if (io) {
+      if (notification) {
+        sendNotificationViaSocket(io, server.owner.toString(), notification);
+      }
       io.to(server.owner.toString()).emit("joinRequest", {
         serverId,
         userId: user.id,
         userName: requestUser?.name,
       });
+      // Room-wide (not just the owner) so every currently-connected admin with
+      // the Join Requests panel open — not only the owner — sees the new
+      // pending request without a manual reopen.
+      io.to(serverId.toString()).emit("joinRequests:updated", { serverId });
     }
 
     return c.json({ message: "Join request sent successfully" }, 200);
@@ -1439,6 +1530,7 @@ export const approveJoinRequest = async (
         userId: requestUserId,
         username: requestUser?.name || "New member",
       });
+      io.to(serverId.toString()).emit("joinRequests:updated", { serverId });
     }
 
     return c.json(
@@ -1522,6 +1614,7 @@ export const rejectJoinRequest = async (
         serverId,
         serverName: server.name,
       });
+      io.to(serverId.toString()).emit("joinRequests:updated", { serverId });
     }
 
     return c.json({ message: "Join request rejected successfully" }, 200);
@@ -1586,6 +1679,7 @@ export const cancelJoinRequest = async (
         serverId,
         userId: user.id,
       });
+      io.to(serverId.toString()).emit("joinRequests:updated", { serverId });
     }
 
     return c.json({ message: "Join request cancelled successfully" }, 200);

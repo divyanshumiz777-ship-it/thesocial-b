@@ -87,6 +87,61 @@ export const updateUserSettings = async (c: Context) => {
     return c.json({ error: "Internal server error" }, 500);
   }
 };
+
+/**
+ * Per-server notification override — this is what makes a server's
+ * "Notification Settings" panel actually scoped to that server instead of
+ * silently rewriting settings.notifications (the GLOBAL default shared by
+ * every community/DM). Passing an empty body clears the override for this
+ * server, reverting it to the global default.
+ */
+export const updateServerNotificationSettings = async (c: Context) => {
+  const { id } = c.get("user");
+  const { serverId } = c.req.param();
+  if (
+    !mongoose.Types.ObjectId.isValid(id) ||
+    !mongoose.Types.ObjectId.isValid(serverId)
+  ) {
+    return c.json({ error: "Invalid ID format" }, 400);
+  }
+  const body = await c.req.json().catch(() => ({}));
+
+  const override: Record<string, unknown> = {};
+  if (typeof body.email === "boolean") override.email = body.email;
+  if (typeof body.push === "boolean") override.push = body.push;
+  if (["all", "mentions", "none"].includes(body.level)) {
+    override.level = body.level;
+  }
+
+  try {
+    const hasOverride = Object.keys(override).length > 0;
+    const update = hasOverride
+      ? { $set: { [`settings.serverNotificationOverrides.${serverId}`]: override } }
+      : { $unset: { [`settings.serverNotificationOverrides.${serverId}`]: "" } };
+
+    const user = await User.findByIdAndUpdate(id, update, { new: true }).select(
+      "settings"
+    );
+    if (!user) return c.json({ error: "User not found" }, 404);
+
+    // Personal-room broadcast so every OTHER open tab/device of this same
+    // user picks the change up live — this used to have revalidateOnFocus
+    // and revalidateOnReconnect explicitly disabled with nothing replacing
+    // them, so a second tab just never saw it change.
+    const io = c.get("io") as Server | undefined;
+    if (io) {
+      io.to(id).emit("user:server-notifications-updated", {
+        serverId,
+        override: hasOverride ? override : null,
+      });
+    }
+
+    return c.json({ settings: user.settings }, 200);
+  } catch (error) {
+    console.error("Error updating server notification settings:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
 import mongoose from "mongoose";
 import { Context } from "hono";
 import { verify } from "hono/jwt";

@@ -10,6 +10,7 @@ import {
   invalidateAfterFollowChange,
 } from "../lib/cacheInvalidation.ts";
 import { formatSingleConversationForUser } from "../lib/dmFormatting.ts";
+import { isMemberDmBlocked } from "../lib/serverPrivacy.ts";
 
 /**
  * Emits a lightweight conversation-list update to each participant's personal
@@ -86,6 +87,16 @@ export const createDm = async (c: Context) => {
     if (!isFriend) {
       return c.json(
         { error: "You can only message friends. Send a friend request first." },
+        403
+      );
+    }
+
+    if (await isMemberDmBlocked(senderId, receiverId)) {
+      return c.json(
+        {
+          error:
+            "Direct messages are disabled between members of a community you share.",
+        },
         403
       );
     }

@@ -46,6 +46,14 @@ export interface IMessage extends Document {
     user: Types.ObjectId;
     readAt: Date;
   }>;
+  // Group-DM delivery tracking (parallel to readBy, but membership-only — no
+  // per-user timestamp needed for tick derivation). 1:1 DMs track delivery as
+  // a single conversation-level high-water-mark (Conversation.lastDeliveredAt
+  // via dmController); a group has multiple recipients, so "delivered to all"
+  // has to be derived per-message instead. Populated by
+  // groupDmController.markGroupDelivered, called when a member opens the
+  // group chat.
+  deliveredTo?: Types.ObjectId[];
   // Present only on a system-generated 1:1 call-log entry (see
   // lib/dmCallService.ts) — rendered as a distinct pill in the DM thread
   // instead of a normal bubble. `content` is still set to a plain-text
@@ -118,6 +126,7 @@ const MessageSchema = new Schema<IMessage>(
         readAt: { type: Date, default: Date.now },
       },
     ],
+    deliveredTo: [{ type: Schema.Types.ObjectId, ref: "User" }],
     callInfo: { type: CallInfoSchema },
   },
   { timestamps: true }

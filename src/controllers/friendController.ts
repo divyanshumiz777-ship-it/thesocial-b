@@ -12,6 +12,7 @@ import {
   getProfileVisibility,
 } from "../lib/profilePrivacy.ts";
 import { canViewRelationships } from "./followController.ts";
+import { isFriendRequestBlocked } from "../lib/serverPrivacy.ts";
 
 export const sendFriendRequest = async (c: Context) => {
   try {
@@ -39,6 +40,16 @@ export const sendFriendRequest = async (c: Context) => {
 
     if (isFriend) {
       return c.json({ error: "Already friends with this user" }, 400);
+    }
+
+    if (await isFriendRequestBlocked(senderId, receiverId)) {
+      return c.json(
+        {
+          error:
+            "This user has disabled friend requests from members of a community you share.",
+        },
+        403
+      );
     }
 
     const existingRequest = await FriendRequest.findOne({

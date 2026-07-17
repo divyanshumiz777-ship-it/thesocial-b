@@ -13,6 +13,7 @@ import {
   removeFriend,
   getUserSettings,
   updateUserSettings,
+  updateServerNotificationSettings,
   updateLastSeen,
   updateProfile,
   getUserCommunities,
@@ -41,6 +42,11 @@ userRouter.post("/join-server/:id", authMiddleware, joinServer);
 userRouter.post("/leave-server/:id", authMiddleware, leaveServer);
 userRouter.get("/settings", authMiddleware, getUserSettings);
 userRouter.put("/settings", authMiddleware, updateUserSettings);
+userRouter.put(
+  "/settings/server/:serverId/notifications",
+  authMiddleware,
+  updateServerNotificationSettings
+);
 
 userRouter.put("/custom-status", authMiddleware, updateCustomStatus);
 userRouter.delete("/custom-status", authMiddleware, clearCustomStatus);

@@ -30,12 +30,12 @@ import { authMiddleware } from "../middleware/authMiddleware.ts";
 
 export const serverRouter = new Hono();
 
-serverRouter.get("/search", searchServers);
-serverRouter.get("/search-servers", searchServers);
+serverRouter.get("/search", authMiddleware, searchServers);
+serverRouter.get("/search-servers", authMiddleware, searchServers);
 serverRouter.get("/audit-logs/:serverId", authMiddleware, getAuditLogs);
 serverRouter.put("/kick-user/:serverId/:userId", authMiddleware, kickUser);
 serverRouter.post("/create-server", authMiddleware, createServer);
-serverRouter.get("/all-servers", getAllServers);
+serverRouter.get("/all-servers", authMiddleware, getAllServers);
 serverRouter.get("/get-server/:id", authMiddleware, getServerById);
 
 serverRouter.delete("/delete-server/:serverId", authMiddleware, deleteServer);

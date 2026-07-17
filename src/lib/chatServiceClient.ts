@@ -124,6 +124,10 @@ export interface VoiceSessionSummaryResponse {
   actionItems: string[];
 }
 
+export interface TranscribeAudioResponse {
+  text: string;
+}
+
 // ── Feature flag ──────────────────────────────────────────────────────────────
 
 export function isChatServiceEnabled(): boolean {
@@ -229,6 +233,35 @@ export async function forwardDeleteContent(
     }
   );
   return result.ok;
+}
+
+// Live captions get a chunk roughly every few seconds for the length of a
+// call — this is a continuous, LOSSY stream (missing one chunk just means
+// one ~4s window of speech never got captioned, not a broken call), so it
+// deliberately does NOT use the cold-start-survival timeout/retry budget
+// every other forwarder in this file uses. A single slow/failed chunk
+// should drop and let the next one (already on its way regardless) carry
+// on, rather than piling up multiple in-flight 60s-timeout retries against
+// a possibly-cold instance while new chunks keep arriving every few seconds.
+const TRANSCRIBE_TIMEOUT_MS = 12_000;
+const TRANSCRIBE_RETRIES = 0;
+
+export async function forwardTranscribeAudio(
+  userId: string,
+  body: { audio_base64: string; mime_type: string }
+): Promise<TranscribeAudioResponse | null> {
+  const result = await callInternalService<TranscribeAudioResponse>(
+    CHAT_URL,
+    "/internal/v1/voice/transcribe-chunk",
+    {
+      method: "POST",
+      body,
+      userId,
+      timeoutMs: TRANSCRIBE_TIMEOUT_MS,
+      retries: TRANSCRIBE_RETRIES,
+    }
+  );
+  return result.ok && result.data ? result.data : null;
 }
 
 export async function forwardSummarizeVoiceSession(body: {

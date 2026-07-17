@@ -22,6 +22,7 @@ import {
 } from "./controllers/notificationController.ts";
 import {
   forwardSummarizeVoiceSession,
+  forwardTranscribeAudio,
   isChatServiceEnabled,
 } from "./lib/chatServiceClient.ts";
 import {
@@ -612,9 +613,29 @@ async function startServer() {
 
       // ── Room joins ──────────────────────────────────────────────────────────
 
-      socket.on("join-server", (roomId: string) => {
+      socket.on("join-server", async (roomId: string) => {
         try {
           if (!roomId) return;
+          // A private/invite-only server's real-time events (moderation
+          // actions, membership changes, settings updates) must not reach a
+          // socket that just requests the room by id — any connected client
+          // used to be able to join any server's room and passively receive
+          // those events. Public servers stay open to anyone (their info is
+          // already visible via search/browse).
+          const server = await DiscordServer.findById(roomId)
+            .select("owner visibility")
+            .lean();
+          if (!server) return;
+          const isAllowed =
+            server.visibility === "public" ||
+            server.owner?.toString() === connectedUserId ||
+            (await ServerMember.exists({ server: roomId, user: connectedUserId }));
+          if (!isAllowed) {
+            console.warn(
+              `join-server denied: user ${connectedUserId} is not a member of server ${roomId}`,
+            );
+            return;
+          }
           socket.join(roomId);
           joinedRooms.add(roomId);
           io.to(roomId).emit("user-connected", connectedUserId, Date.now());
@@ -968,6 +989,33 @@ async function startServer() {
         }
       });
 
+      // Purely informational (no SDP/track data here — that's replaced
+      // directly peer-to-peer via RTCRtpSender.replaceTrack, see
+      // useWebRTC.ts) — this just tells everyone else in the room whose
+      // video tile is now a screen share, for the "X is sharing" UI.
+      socket.on("webrtc:screen-share-started", (data: any) => {
+        try {
+          if (!data?.channelId || !socket.rooms.has(data.channelId)) return;
+          io.to(data.channelId).emit("webrtc:screen-share-started", {
+            channelId: data.channelId,
+            userId: connectedUserId,
+          });
+        } catch {
+          /* */
+        }
+      });
+      socket.on("webrtc:screen-share-stopped", (data: any) => {
+        try {
+          if (!data?.channelId || !socket.rooms.has(data.channelId)) return;
+          io.to(data.channelId).emit("webrtc:screen-share-stopped", {
+            channelId: data.channelId,
+            userId: connectedUserId,
+          });
+        } catch {
+          /* */
+        }
+      });
+
       // ── Voice live captions / transcript capture ────────────────────────────
       // Client-side speech recognition (see VoiceVideoChannel.tsx) emits
       // interim results (isFinal: false, for the live caption overlay only —
@@ -1019,6 +1067,77 @@ async function startServer() {
             );
           } catch (err) {
             console.error("voice:caption persist error:", err);
+          }
+        },
+      );
+
+      // Server-side transcription (Groq Whisper via the chat-service) — the
+      // ACTUAL captioning path now; voice:caption above is kept only as a
+      // relay/persist primitive this handler reuses, not because any client
+      // still does its own browser-side speech recognition. This replaced
+      // that browser-side approach entirely: the Web Speech API only exists
+      // in Chromium browsers, requires (and silently fails without) live
+      // network access to Google's speech backend — confirmed in production
+      // to fail in e.g. Brave with that access blocked by default — whereas
+      // this path only depends on this server reaching the chat-service.
+      socket.on(
+        "voice:audio-chunk",
+        async (
+          data: { channelId: string; sessionId: string; audio: string; mimeType: string },
+          // Socket.IO acknowledgement — lets the client tell "chunk
+          // transcribed to nothing because nobody was talking" (ok, no
+          // problem) apart from "the chat-service call itself failed"
+          // (client can surface that after a few in a row), which a plain
+          // fire-and-forget emit can't distinguish.
+          ack?: (res: { ok: boolean }) => void,
+        ) => {
+          let ok = false;
+          try {
+            const { channelId, sessionId, audio, mimeType } = data;
+            if (!channelId || !sessionId || !audio) return;
+            // Same consent gate as voice:caption — a non-consenting
+            // participant's audio never leaves the drop-here point below,
+            // regardless of what a modified client might send.
+            if (!voiceConsent.get(sessionId)?.has(connectedUserId)) {
+              ok = true; // not an error condition, just not opted in
+              return;
+            }
+            if (!isChatServiceEnabled()) return;
+
+            const result = await forwardTranscribeAudio(connectedUserId, {
+              audio_base64: audio,
+              mime_type: mimeType || "audio/webm",
+            });
+            if (result === null) return; // the chat-service call itself failed
+            ok = true;
+            const text = result.text?.trim();
+            if (!text) return;
+
+            // Whisper transcribes a whole chunk at once — there is no
+            // "interim" concept the way browser speech recognition has, so
+            // every result here is final: relay AND persist, same as
+            // voice:caption's isFinal branch. Unlike voice:caption above
+            // (socket.to, not io.to — deliberately excludes the sender,
+            // because that client-side approach already knew its own text
+            // instantly from the browser's own recognition), the SPEAKER
+            // here doesn't know the text until this comes back from
+            // Whisper, so this one goes to io.to — everyone in the room,
+            // including the speaker themselves.
+            const payload = { channelId, sessionId, speakerId: connectedUserId, text, isFinal: true };
+            io.to(channelId).emit("voice:caption", payload);
+            await VoiceSessionTranscript.updateOne(
+              { session: sessionId },
+              {
+                $push: {
+                  segments: { speaker: connectedUserId, text, timestamp: new Date() },
+                },
+              },
+              { upsert: true },
+            );
+          } catch (err) {
+            console.error("voice:audio-chunk transcribe error:", err);
+          } finally {
+            ack?.({ ok });
           }
         },
       );
