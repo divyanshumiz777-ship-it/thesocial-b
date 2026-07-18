@@ -264,6 +264,28 @@ export async function forwardTranscribeAudio(
   return result.ok && result.data ? result.data : null;
 }
 
+// Fires the instant someone joins a Voice/Video channel that has
+// transcription enabled (see server.ts's webrtc:join handler) — well before
+// the consent banner is even shown, let alone before any real audio chunk
+// exists to send. Deliberately uses the FULL cold-start-survival budget
+// (unlike forwardTranscribeAudio above): this call's entire purpose is to
+// absorb a Render free-tier cold boot (~20-100s, see this file's top
+// comment) in the background while the user is still clicking through the
+// join/consent UI, so that by the time the first real caption chunk goes
+// out, the instance is already warm and lands well inside
+// TRANSCRIBE_TIMEOUT_MS's tight budget instead of racing a cold start with
+// zero retries. Fire-and-forget from the caller — a failed warm-up isn't
+// itself an error, it just means the first real chunk has to ride out the
+// cold start on its own, exactly as it would have without this.
+export async function warmChatService(): Promise<void> {
+  await callInternalService(CHAT_URL, "/internal/v1/ping", {
+    method: "GET",
+    timeoutMs: REQUEST_TIMEOUT_MS,
+    retries: RETRIES,
+    retryDelayMs: RETRY_DELAY_MS,
+  });
+}
+
 export async function forwardSummarizeVoiceSession(body: {
   session_id: string;
   channel_id: string;

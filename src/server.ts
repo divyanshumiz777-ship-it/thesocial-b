@@ -24,6 +24,7 @@ import {
   forwardSummarizeVoiceSession,
   forwardTranscribeAudio,
   isChatServiceEnabled,
+  warmChatService,
 } from "./lib/chatServiceClient.ts";
 import {
   inviteCall as inviteDMCall,
@@ -257,19 +258,26 @@ async function startServer() {
     const canJoinVoiceChannel = async (
       channelId: string,
       userId: string,
-    ): Promise<boolean> => {
+    ): Promise<{ allowed: boolean; transcriptionEnabled: boolean }> => {
+      const denied = { allowed: false, transcriptionEnabled: false };
       try {
-        const channel = await Channel.findById(channelId).select("server").lean();
-        if (!channel) return false;
+        const channel = await Channel.findById(channelId)
+          .select("server transcriptionEnabled")
+          .lean();
+        if (!channel) return denied;
         const server = await DiscordServer.findById(channel.server)
           .select("owner")
           .lean();
-        if (!server) return false;
-        if (server.owner.toString() === userId) return true;
-        return !!(await ServerMember.exists({ server: channel.server, user: userId }));
+        if (!server) return denied;
+        const transcriptionEnabled = !!channel.transcriptionEnabled;
+        if (server.owner.toString() === userId) {
+          return { allowed: true, transcriptionEnabled };
+        }
+        const isMember = !!(await ServerMember.exists({ server: channel.server, user: userId }));
+        return { allowed: isMember, transcriptionEnabled };
       } catch (err) {
         console.error("canJoinVoiceChannel error:", err);
-        return false;
+        return denied;
       }
     };
 
@@ -922,7 +930,10 @@ async function startServer() {
         // RAG-indexed transcript's speaker attribution.
         async ({ channelId }: { channelId: string }) => {
           try {
-            const allowed = await canJoinVoiceChannel(channelId, connectedUserId);
+            const { allowed, transcriptionEnabled } = await canJoinVoiceChannel(
+              channelId,
+              connectedUserId,
+            );
             if (!allowed) {
               socket.emit("webrtc:join-denied", { channelId });
               return;
@@ -936,6 +947,16 @@ async function startServer() {
             // whether it just started the session or joined an existing one.
             if (sessionId) {
               socket.emit("voice:session-active", { channelId, sessionId });
+            }
+            // Fire-and-forget: absorb a Render free-tier cold start on the
+            // chat-service NOW, in the background, while the user still has
+            // to click through the consent banner before any real audio
+            // chunk is sent — see warmChatService's own comment for why this
+            // is what actually fixes "captions keep failing" in production
+            // (forwardTranscribeAudio's per-chunk budget is deliberately too
+            // tight to survive a cold start on its own).
+            if (transcriptionEnabled && isChatServiceEnabled()) {
+              void warmChatService();
             }
           } catch {
             /* non-fatal */
