@@ -11,6 +11,7 @@ import { setIoInstance } from "./config/socket.ts";
 import { getAllowedOrigins } from "./lib/corsOrigins.ts";
 import app from "./app.ts";
 import User from "./models/User.ts";
+import Message from "./models/Message.ts";
 import VoiceSession from "./models/VoiceSession.ts";
 import VoiceSessionTranscript from "./models/VoiceSessionTranscript.ts";
 import Channel from "./models/Channel.ts";
@@ -34,6 +35,7 @@ import {
   endCall as endDMCall,
   mediaReady as mediaReadyDMCall,
 } from "./lib/dmCallService.ts";
+import { isAdminEmail } from "./lib/admin.ts";
 
 /**
  * server.ts — production-grade server bootstrap.
@@ -203,6 +205,7 @@ async function startServer() {
           return next(new Error("Unauthorized"));
         }
         socket.data.userId = decoded.id;
+        socket.data.email = decoded.email;
         next();
       });
     });
@@ -524,6 +527,41 @@ async function startServer() {
         }
       }, OFFLINE_GRACE_MS);
     };
+
+    // ── Admin dashboard live metrics ─────────────────────────────────────────
+    // Pushed on an interval rather than computed per-request — the admin
+    // dashboard's REST snapshot (getAdminStats) already covers the slow-
+    // moving aggregate totals (all-time users/servers/messages/etc.) on a
+    // 60s SWR poll; this covers the genuinely LIVE numbers a poll can't
+    // represent well (who's online right now, live calls in progress) on a
+    // much tighter cadence. Gated on the "admin-live" room actually having a
+    // member so an idle/closed dashboard costs zero DB queries.
+    const ADMIN_LIVE_STATS_INTERVAL_MS = 5_000;
+    setInterval(async () => {
+      const room = io.sockets.adapter.rooms.get("admin-live");
+      if (!room || room.size === 0) return;
+      try {
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+
+        const [activeVoiceSessions, messagesLast5Min, newUsersToday] = await Promise.all([
+          VoiceSession.countDocuments({ status: "active" }),
+          Message.countDocuments({ createdAt: { $gte: fiveMinAgo } }),
+          User.countDocuments({ createdAt: { $gte: startOfToday } }),
+        ]);
+
+        io.to("admin-live").emit("admin:live-stats", {
+          onlineUsers: onlineUsers.size,
+          activeVoiceSessions,
+          messagesLast5Min,
+          newUsersToday,
+          ts: Date.now(),
+        });
+      } catch (err) {
+        console.error("admin live-stats interval error:", err);
+      }
+    }, ADMIN_LIVE_STATS_INTERVAL_MS);
 
     // ── Connection handler ────────────────────────────────────────────────────
 
@@ -1191,6 +1229,20 @@ async function startServer() {
       // for both rather than firing immediately at accept time.
       socket.on("call:media-ready", (data) => {
         void mediaReadyDMCall(io, connectedUserId, data);
+      });
+
+      // ── Admin dashboard live metrics ─────────────────────────────────────────
+      // A dedicated room rather than a per-request query — liveStatsInterval
+      // below only computes/emits anything while this room is non-empty, so
+      // an idle admin dashboard (or none open at all) costs nothing. Checked
+      // server-side against the JWT's own email (never the client-supplied
+      // payload) — same trust boundary as requireAdmin's REST equivalent.
+      socket.on("admin:subscribe-live-stats", () => {
+        if (!isAdminEmail(socket.data.email as string | undefined)) return;
+        socket.join("admin-live");
+      });
+      socket.on("admin:unsubscribe-live-stats", () => {
+        socket.leave("admin-live");
       });
 
       // ── Disconnect ──────────────────────────────────────────────────────────
