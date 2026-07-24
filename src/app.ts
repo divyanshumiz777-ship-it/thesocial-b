@@ -113,6 +113,13 @@ if (!isTest) {
       // cache entry, so the optimistic client-side toggle got silently reverted the
       // moment SWR's own revalidation re-fetched the still-cached (pre-toggle) list;
       // per-user list, cheap to compute, no benefit to caching it anyway
+      "/api/v1/message/pinned", // same bug class: togglePinMessage emits
+      // "message:pinned" over the socket, but every listener (including the
+      // pinning user's own client) reacts to it by re-fetching this exact
+      // GET — and togglePinMessage never invalidates this route's cache
+      // entry, so the refetch just replayed the pre-pin cached list until
+      // the cache entry happened to expire (which read as "fixes itself on
+      // reload")
     ];
 
     if (skipPaths.some((p) => path.startsWith(p))) {
