@@ -18,6 +18,7 @@ import {
 } from "../lib/aiServiceClient.ts";
 import { canViewFullProfile } from "../lib/profilePrivacy.ts";
 import { canViewRelationships } from "./followController.ts";
+import { forwardGenerateReelCaptions } from "../lib/chatServiceClient.ts";
 
 const MAX_PINNED_REELS = 3;
 
@@ -78,6 +79,24 @@ const broadcastToRoom = (room: string, event: string, payload: object) => {
 
 const broadcastReel = (reelId: string, event: string, payload: object) =>
   broadcastToRoom(`reel:${reelId}`, event, payload);
+
+// Fire-and-forget — never awaited by createReel. Captions are a nice-to-have
+// enhancement, never a gate on the reel existing/being playable; a reel with
+// captionsStatus="unavailable" just renders with no <track> element.
+async function generateReelCaptionsAsync(reelId: string, videoUrl: string) {
+  try {
+    const result = await forwardGenerateReelCaptions(videoUrl);
+    await Reel.updateOne(
+      { _id: reelId },
+      result
+        ? { $set: { captionsVtt: result.vtt, captionsStatus: "ready" } }
+        : { $set: { captionsStatus: "unavailable" } },
+    );
+  } catch (err) {
+    console.error("Caption generation failed for reel", reelId, err);
+    await Reel.updateOne({ _id: reelId }, { $set: { captionsStatus: "unavailable" } }).catch(() => {});
+  }
+}
 
 const broadcastCreator = (creatorId: string, event: string, payload: object) =>
   broadcastToRoom(`creator:${creatorId}`, event, payload);
@@ -322,6 +341,8 @@ export const createReel = async (c: Context) => {
 
     await reel.populate("creator_id", "name profilePic");
 
+    void generateReelCaptionsAsync(reel._id.toString(), videoUrl);
+
     // Only worth telling followers about public reels — a private draft
     // publishing shouldn't ping everyone who follows this creator.
     if (reel.isPublic) {
@@ -336,6 +357,51 @@ export const createReel = async (c: Context) => {
   } catch (error) {
     console.error("Error creating reel:", error);
     return c.json({ error: "Failed to create reel" }, 500);
+  }
+};
+
+// Public, no-auth preview for share links — ReelsTab.tsx's handleShare()
+// builds a link to /reels/:reelId via navigator.share/clipboard, but no
+// matching page/route ever existed, so every reel share 404s for whoever
+// receives it. This only exposes fields already fine for anyone with the
+// link to see (no email, unlike the authenticated getReelById below).
+export const getPublicReelPreview = async (c: Context) => {
+  try {
+    const { reelId } = c.req.param();
+    const reel = await Reel.findOne({ _id: reelId, isDeleted: false })
+      .select("videoUrl thumbnailUrl caption likeCount commentCount shareCount creator_id")
+      .populate("creator_id", "name profilePic")
+      .lean();
+    if (!reel) {
+      return c.json({ error: "Reel not found" }, 404);
+    }
+    return c.json({ reel }, 200);
+  } catch (error) {
+    console.error("Error fetching public reel preview:", error);
+    return c.json({ error: "Failed to fetch reel" }, 500);
+  }
+};
+
+// Public, no-auth — a <track src> request from a <video> element can't carry
+// an Authorization header, so this must be reachable without one, same as
+// getPublicReelPreview above. Returns 404 both when the reel doesn't exist
+// and when captions were never generated/failed — the frontend only ever
+// renders the <track> element when captionsStatus is already known to be
+// "ready" (see ReelsTab.tsx), so a 404 here would only happen for a stale
+// reference or a direct hit on this URL.
+export const getReelCaptionsVtt = async (c: Context) => {
+  try {
+    const { reelId } = c.req.param();
+    const reel = await Reel.findOne({ _id: reelId, isDeleted: false })
+      .select("captionsVtt captionsStatus")
+      .lean();
+    if (!reel || reel.captionsStatus !== "ready" || !reel.captionsVtt) {
+      return c.json({ error: "Captions not available" }, 404);
+    }
+    return c.text(reel.captionsVtt, 200, { "Content-Type": "text/vtt; charset=utf-8" });
+  } catch (error) {
+    console.error("Error fetching reel captions:", error);
+    return c.json({ error: "Failed to fetch captions" }, 500);
   }
 };
 

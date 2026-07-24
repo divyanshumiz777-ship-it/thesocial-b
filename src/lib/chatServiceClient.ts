@@ -310,3 +310,92 @@ export async function forwardSummarizeVoiceSession(body: {
   );
   return result.ok && result.data ? result.data : null;
 }
+
+export interface ModerationTriageResponse {
+  severity: "low" | "medium" | "high";
+  suggestedAction: "none" | "warn" | "mute" | "ban" | "escalate";
+  rationale: string;
+}
+
+// Fire-and-forget from reportController.ts right after a report is created —
+// this only ever prioritizes the admin queue (severity/suggested action),
+// never gates or auto-actions the report itself. A null return (chat-service
+// down, cold start, etc.) just means the report stays untriaged.
+export async function forwardModerationTriage(body: {
+  reason: string;
+  details?: string;
+  content_type?: string;
+  snippet?: string;
+}): Promise<ModerationTriageResponse | null> {
+  const result = await callInternalService<ModerationTriageResponse>(
+    CHAT_URL,
+    "/internal/v1/moderation/triage",
+    {
+      method: "POST",
+      body,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      retries: RETRIES,
+      retryDelayMs: RETRY_DELAY_MS,
+    }
+  );
+  return result.ok && result.data ? result.data : null;
+}
+
+export interface CatchMeUpResponse {
+  digest: string;
+  since: string;
+  totalMessageCount: number;
+  totalMentionCount: number;
+  servers: Array<{
+    serverId: string;
+    serverName: string;
+    messageCount: number;
+    mentionCount: number;
+    topChannel: string | null;
+  }>;
+}
+
+export async function forwardCatchMeUpDigest(
+  userId: string,
+  since: string
+): Promise<CatchMeUpResponse | null> {
+  const result = await callInternalService<CatchMeUpResponse>(
+    CHAT_URL,
+    "/internal/v1/digest/catch-me-up",
+    {
+      method: "POST",
+      body: { since },
+      userId,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      retries: RETRIES,
+      retryDelayMs: RETRY_DELAY_MS,
+    }
+  );
+  return result.ok && result.data ? result.data : null;
+}
+
+export interface ReelCaptionsResponse {
+  vtt: string;
+}
+
+// Fire-and-forget from reelController.ts right after a reel is created — a
+// null return just means the reel stays without captions; it never blocks
+// or retries reel creation. Downloading + transcribing a full video takes
+// longer than a warm chat/search call, so this reuses the same cold-start-
+// survival budget as every other non-latency-sensitive forwarder in this file.
+export async function forwardGenerateReelCaptions(
+  videoUrl: string
+): Promise<ReelCaptionsResponse | null> {
+  const result = await callInternalService<ReelCaptionsResponse>(
+    CHAT_URL,
+    "/internal/v1/reels/generate-captions",
+    {
+      method: "POST",
+      body: { video_url: videoUrl },
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      retries: RETRIES,
+      retryDelayMs: RETRY_DELAY_MS,
+    }
+  );
+  return result.ok && result.data ? result.data : null;
+}

@@ -21,8 +21,14 @@ import friendRoutes from "./routes/friendRoutes.ts";
 import followRoutes from "./routes/followRoutes.ts";
 import reportRoutes from "./routes/reportRoutes.ts";
 import { reelRouter } from "./routes/reelRoutes.ts";
+import { publicReelRouter } from "./routes/publicReelRoutes.ts";
 import { assistantRouter } from "./routes/assistantRoutes.ts";
 import { adminRouter } from "./routes/adminRoutes.ts";
+import appealRoutes from "./routes/appealRoutes.ts";
+import savedItemRoutes from "./routes/savedItemRoutes.ts";
+import digestRoutes from "./routes/digestRoutes.ts";
+import pushRoutes from "./routes/pushRoutes.ts";
+import paymentRoutes from "./routes/paymentRoutes.ts";
 import { voiceSessionRouter } from "./routes/voiceSessionRoutes.ts";
 import { getIoInstance } from "./config/socket.ts";
 import { rateLimit } from "./middleware/rateLimit.ts";
@@ -102,6 +108,11 @@ if (!isTest) {
       "/api/v1/friends/", // friend list via friend routes
       "/api/v1/user/user-servers", // cache runs before authMiddleware → key is "anonymous",
       // so all users would share one stale list (own created/joined servers wouldn't show)
+      "/api/v1/saved-items", // save/unsave has no socket-based liveness to fall back on
+      // (unlike messages/DMs above) — saveItem/unsaveItem never invalidated this GET's
+      // cache entry, so the optimistic client-side toggle got silently reverted the
+      // moment SWR's own revalidation re-fetched the still-cached (pre-toggle) list;
+      // per-user list, cheap to compute, no benefit to caching it anyway
     ];
 
     if (skipPaths.some((p) => path.startsWith(p))) {
@@ -164,8 +175,14 @@ app.route("/api/v1/friends", friendRoutes);
 app.route("/api/v1/follow", followRoutes);
 app.route("/api/v1/reports", reportRoutes);
 app.route("/api/v1/reels", reelRouter);
+app.route("/api/v1/public/reels", publicReelRouter);
 app.route("/api/v1/assistant", assistantRouter);
 app.route("/api/v1/admin", adminRouter);
+app.route("/api/v1/appeals", appealRoutes);
+app.route("/api/v1/saved-items", savedItemRoutes);
+app.route("/api/v1/digest", digestRoutes);
+app.route("/api/v1/push", pushRoutes);
+app.route("/api/v1/payments", paymentRoutes);
 app.route("/api/v1/voice", voiceSessionRouter);
 
 export default app;

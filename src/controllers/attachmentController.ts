@@ -8,6 +8,7 @@ import {
   validateFile,
   sanitizeFilename,
   getCloudinaryFolder,
+  getCloudinaryResourceType,
   getFileSizeInMB,
   formatFileSize,
 } from "../lib/fileUpload.ts";
@@ -47,14 +48,9 @@ export const uploadAttachment = async (c: Context) => {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    let resourceType: "auto" | "video" = "auto";
-    if (fileType === "video" || fileType === "audio") {
-      resourceType = "video";
-    }
-
     const cloudinaryResponse = await uploadOnCloudinary(buffer, {
       folder: getCloudinaryFolder(fileType),
-      resource_type: resourceType,
+      resource_type: getCloudinaryResourceType(fileType),
     });
 
     if (!cloudinaryResponse) {

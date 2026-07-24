@@ -16,7 +16,11 @@ export interface INotification extends Document {
     | "member_left"
     | "follow"
     | "voice_session_summary"
-    | "missed_call";
+    | "missed_call"
+    | "banned"
+    | "muted"
+    | "appeal_resolved"
+    | "tip_received";
   title: string;
   message: string;
   metadata?: {
@@ -66,6 +70,10 @@ const NotificationSchema = new Schema<INotification>(
         "follow",
         "voice_session_summary",
         "missed_call",
+        "banned",
+        "muted",
+        "appeal_resolved",
+        "tip_received",
       ],
       required: true,
       index: true,

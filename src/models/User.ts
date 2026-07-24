@@ -9,6 +9,13 @@ interface IUser extends Document {
   bannerUrl?: string;
   verified?: boolean;
   lastSeen: Date;
+  // Separate watermark for the Catch Me Up digest — NOT the same as
+  // lastSeen, which gets bumped every 15 minutes by a presence heartbeat
+  // (see frontend/components/AuthProvider.tsx) even while the user is
+  // actively online, which would make "since you left" always mean "since
+  // ~15 minutes ago." This only ever advances when a digest is actually
+  // fetched (see digestController.ts).
+  catchMeUpSeenAt?: Date;
   servers?: Types.ObjectId[];
   roles?: Types.ObjectId[];
   password?: string;
@@ -107,6 +114,7 @@ const UserSchema = new Schema<IUser>({
   friends: [{ type: Schema.Types.ObjectId, ref: "User" }],
   blockedUsers: [{ type: Schema.Types.ObjectId, ref: "User" }],
   lastSeen: { type: Date, default: Date.now },
+  catchMeUpSeenAt: { type: Date },
   provider: { type: String, default: "credentials" },
   providerAccountId: { type: String },
   servers: [{ type: Schema.Types.ObjectId, ref: "DiscordServer" }],

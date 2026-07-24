@@ -118,6 +118,21 @@ export function sanitizeFilename(filename: string): string {
   return baseName.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+// Cloudinary's `resource_type: "auto"` detects PDFs/docs as `image` (it
+// treats PDF pages as renderable images), returning a `/image/upload/...pdf`
+// delivery URL. That URL 404s/fails to parse for callers expecting an actual
+// binary document fetch (e.g. a browser's PDF viewer), because Cloudinary's
+// image pipeline — not a plain file passthrough — is now serving it. Videos
+// and audio need the dedicated `video` resource type; everything else
+// (actual images, gifs, stickers) is safe to store as `image`.
+export function getCloudinaryResourceType(
+  fileType: string
+): "image" | "video" | "raw" {
+  if (fileType === "video" || fileType === "audio") return "video";
+  if (fileType === "document") return "raw";
+  return "image";
+}
+
 export function getCloudinaryFolder(fileType: string): string {
   switch (fileType) {
     case "image":

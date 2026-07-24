@@ -17,6 +17,11 @@ import {
   hasMarkdown,
 } from "../lib/markdown.ts";
 import { invalidateAfterMessage } from "../lib/cacheInvalidation.ts";
+import { fireWebhooksForEvent } from "../lib/webhookEvents.ts";
+import {
+  getFileType as getSharedFileType,
+  getCloudinaryResourceType,
+} from "../lib/fileUpload.ts";
 
 export const searchMessages = async (c: Context) => {
   const { channelId } = c.req.param();
@@ -133,14 +138,10 @@ export const createMessage = async (c: Context) => {
       const buffer = Buffer.from(arrayBuffer);
 
       const fileType = getFileType(attachmentFile);
-      let resourceType: "auto" | "video" = "auto";
-      if (fileType === "video" || fileType === "audio") {
-        resourceType = "video";
-      }
 
       const cloudinaryResponse = await uploadOnCloudinary(buffer, {
         folder: `attachments/${fileType}s`,
-        resource_type: resourceType,
+        resource_type: getCloudinaryResourceType(fileType),
       });
 
       if (cloudinaryResponse) {
@@ -187,6 +188,16 @@ export const createMessage = async (c: Context) => {
       channelId: channelId.toString(),
       message: populatedMessage,
     });
+
+    // Fire-and-forget — never awaited, must never add latency to sending a
+    // message. A server admin's own configured webhook (Discord/Slack/
+    // Zapier) sees this exactly like the existing manual "Test Payload".
+    void fireWebhooksForEvent(serverId.toString(), "message_created", {
+      channelId: channelId.toString(),
+      sender: { id: senderId, name: user.name },
+      content,
+      messageId: newMessage._id.toString(),
+    }, io);
 
     if (mentions.length > 0) {
       try {
@@ -251,6 +262,7 @@ export const createMessage = async (c: Context) => {
 
 export const getMessagesByChannelId = async (c: Context) => {
   const { channelId } = c.req.param();
+  const viewer = c.get("user");
 
   const page = parseInt(c.req.query("page") || "1");
   const limit = parseInt(c.req.query("limit") || "50");
@@ -262,6 +274,19 @@ export const getMessagesByChannelId = async (c: Context) => {
     return c.json({ error: "Invalid channel ID format" }, 400);
   }
   try {
+    // Block enforcement was inconsistent: enforced in shared member lists
+    // and DM calls, but never here — a blocked harasser's messages still
+    // rendered verbatim in any channel you both belonged to. Same
+    // both-directions convention as getServerById's hiddenUserIds.
+    const [viewerDoc, blockedByOthers] = await Promise.all([
+      User.findById(viewer?.id).select("blockedUsers").lean(),
+      User.find({ blockedUsers: viewer?.id }, "_id").lean(),
+    ]);
+    const hiddenUserIds = new Set<string>([
+      ...(viewerDoc?.blockedUsers ?? []).map((u: any) => u.toString()),
+      ...blockedByOthers.map((u) => u._id.toString()),
+    ]);
+
     const messages = await Message.find({ channel: channelId })
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -272,7 +297,11 @@ export const getMessagesByChannelId = async (c: Context) => {
         populate: { path: "sender", select: "name profilePic email" },
       });
 
-    return c.json(messages || [], 200);
+    const visible = hiddenUserIds.size
+      ? messages.filter((m: any) => !hiddenUserIds.has(m.sender?._id?.toString()))
+      : messages;
+
+    return c.json(visible || [], 200);
   } catch (error) {
     console.error("Error fetching messages:", error);
     return c.json({ error: "Failed to fetch messages" }, 500);
@@ -397,7 +426,9 @@ export const updateMessage = async (c: Context) => {
       const buffer = Buffer.from(arrayBuffer);
       const cloudinaryResponse = await uploadOnCloudinary(buffer, {
         folder: "attachments",
-        resource_type: "auto",
+        resource_type: getCloudinaryResourceType(
+          getSharedFileType(attachmentFile.type)
+        ),
       });
 
       if (cloudinaryResponse) {

@@ -17,8 +17,10 @@ import {
   getServerInvites,
   deleteInvite,
   acceptInvite,
+  getInvitePreview,
   searchServers,
   getServerById,
+  joinPublicServer,
   requestJoinServer,
   getJoinRequests,
   approveJoinRequest,
@@ -26,6 +28,12 @@ import {
   cancelJoinRequest,
   getUnreadCounts,
 } from "../controllers/serverController.ts";
+import {
+  createServerTier,
+  listServerTiers,
+  deactivateServerTier,
+  createTierCheckout,
+} from "../controllers/paymentController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 
 export const serverRouter = new Hono();
@@ -50,8 +58,10 @@ serverRouter.put("/unmute-member/:serverId", authMiddleware, unmuteMember);
 serverRouter.post("/create-invite/:serverId", authMiddleware, createInvite);
 serverRouter.get("/:serverId/invites", authMiddleware, getServerInvites);
 serverRouter.delete("/delete-invite/:inviteId", authMiddleware, deleteInvite);
+serverRouter.get("/invite-preview/:inviteCode", getInvitePreview);
 serverRouter.put("/accept-invite/:inviteCode", authMiddleware, acceptInvite);
 
+serverRouter.post("/:serverId/join", authMiddleware, joinPublicServer);
 serverRouter.post("/:serverId/request-join", authMiddleware, requestJoinServer);
 serverRouter.delete(
   "/:serverId/cancel-join",
@@ -66,3 +76,8 @@ serverRouter.post(
 );
 serverRouter.post("/:serverId/reject-join", authMiddleware, rejectJoinRequest);
 serverRouter.get("/:serverId/unread-counts", authMiddleware, getUnreadCounts);
+
+serverRouter.get("/:serverId/tiers", authMiddleware, listServerTiers);
+serverRouter.post("/:serverId/tiers", authMiddleware, createServerTier);
+serverRouter.delete("/:serverId/tiers/:tierId", authMiddleware, deactivateServerTier);
+serverRouter.post("/:serverId/tiers/:tierId/subscribe", authMiddleware, createTierCheckout);

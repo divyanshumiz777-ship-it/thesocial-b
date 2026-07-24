@@ -6,6 +6,7 @@ import Message from "../models/Message.ts";
 import { verify } from "hono/jwt";
 import mongoose from "mongoose";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
+import { getCloudinaryResourceType } from "../lib/fileUpload.ts";
 import CacheInvalidator from "../lib/cacheInvalidation.ts";
 
 const groupDmController = new Hono();
@@ -841,15 +842,16 @@ export const sendMessage = async (c: Context) => {
         if (!(f instanceof File)) continue;
         try {
           const buffer = Buffer.from(await f.arrayBuffer());
+          const attachmentType = inferAttachmentType(f.type);
           const uploadResult = await uploadOnCloudinary(buffer, {
             folder: "group-messages",
-            resource_type: "auto",
+            resource_type: getCloudinaryResourceType(attachmentType),
           });
           const url = uploadResult?.secure_url || uploadResult?.url;
           if (url) {
             attachmentsV2.push({
               url,
-              type: inferAttachmentType(f.type),
+              type: attachmentType,
               fileName: f.name,
               fileSize: f.size,
               mimeType: f.type,

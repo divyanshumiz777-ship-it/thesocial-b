@@ -12,6 +12,7 @@ import User from "../models/User.ts";
 import VoiceSession from "../models/VoiceSession.ts";
 import VoiceSessionTranscript from "../models/VoiceSessionTranscript.ts";
 import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
+import { fireWebhooksForEvent } from "../lib/webhookEvents.ts";
 import { Server } from "socket.io";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { nanoid } from "nanoid";
@@ -27,26 +28,31 @@ import { invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
 import ServerMember from "../models/ServerMember.ts";
 
 export const searchServers = async (c: Context) => {
+  const viewerId = c.get("user")?.id as string | undefined;
   const query = c.req.query("q") || "";
   const limit = Number.parseInt(c.req.query("limit") || "20", 10);
   const skip = Number.parseInt(c.req.query("skip") || "0", 10);
-  if (!query) {
-    return c.json({ error: "Query required" }, 400);
-  }
+  // "active" (onlineCount desc) powers the /discover directory's Trending
+  // tab; "new" (updatedAt desc, the pre-existing behavior) is the default
+  // for both the sidebar live-search and Discover's Recent tab.
+  const sortBy: Record<string, 1 | -1> =
+    c.req.query("sort") === "active" ? { onlineCount: -1 } : { updatedAt: -1 };
   try {
     // Private/invite-only servers, and any server whose owner opted out of
     // search via Privacy Settings, must never surface here — this endpoint
     // used to return every server regardless of visibility, leaking private
     // servers' name/description/owner/member-count to anyone who could guess
     // a search term.
+    // An empty query matches every public/searchable server — this is what
+    // lets /discover browse the full directory, not just query-driven search.
     const filter = {
-      name: { $regex: query, $options: "i" },
+      ...(query ? { name: { $regex: query, $options: "i" } } : {}),
       visibility: "public",
       "privacy.showInSearch": { $ne: false },
     };
     const total = await DiscordServer.countDocuments(filter);
     const docs = await DiscordServer.find(filter)
-      .sort({ updatedAt: -1 })
+      .sort(sortBy)
       .skip(skip)
       .limit(limit)
       .select(
@@ -66,6 +72,9 @@ export const searchServers = async (c: Context) => {
       memberCount: Array.isArray(s.members) ? s.members.length : 0,
       channelCount: Array.isArray(s.channels) ? s.channels.length : 0,
       onlineCount: s.onlineCount ?? 0,
+      isMember: Array.isArray(s.members)
+        ? s.members.some((m: any) => m.user?.toString() === viewerId)
+        : false,
       owner: s.owner
         ? {
             _id: s.owner._id,
@@ -687,6 +696,43 @@ export const deleteInvite = async (
   }
 };
 
+// Public, no-auth preview for a share/OG-tag page — app/invite/[code]/page.tsx
+// used to immediately PUT accept-invite on mount, so a logged-out visitor
+// (or a link-preview crawler) got a silent failure or a spinner with zero
+// idea what server they'd be joining. Deliberately separate from
+// acceptInvite (which both validates AND mutates by joining) — this only
+// ever reads, and only exposes fields already safe to show anyone with the
+// link (a DiscordServer's own settings/CreateServerModel.tsx already treats
+// name/description/imageUrl/member count as non-sensitive).
+export const getInvitePreview = async (c: Context) => {
+  const { inviteCode } = c.req.param();
+  try {
+    const invite = await Invite.findOne({ code: inviteCode }).lean();
+    if (!invite) {
+      return c.json({ valid: false, reason: "This invite is invalid or has expired." }, 404);
+    }
+    const server = await DiscordServer.findById(invite.server)
+      .select("name description imageUrl members")
+      .lean();
+    if (!server) {
+      return c.json({ valid: false, reason: "This server no longer exists." }, 404);
+    }
+    return c.json({
+      valid: true,
+      server: {
+        id: server._id,
+        name: server.name,
+        description: server.description,
+        imageUrl: server.imageUrl,
+        memberCount: server.members?.length ?? 0,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching invite preview:", error);
+    return c.json({ valid: false, reason: "Something went wrong." }, 500);
+  }
+};
+
 export const acceptInvite = async (
   c: Context<{ Variables: { user: UserPayload } }>
 ) => {
@@ -1050,7 +1096,7 @@ export const banMember = async (c: Context) => {
   }
   if (!reason) return c.json({ error: "Reason is required" }, 400);
   try {
-    const server = await DiscordServer.findById(serverId).select("owner").lean();
+    const server = await DiscordServer.findById(serverId).select("owner name").lean();
     if (!server) return c.json({ error: "Server not found" }, 404);
     if (server.owner.toString() === userToBanId) {
       return c.json({ error: "The server owner can't be banned." }, 403);
@@ -1104,7 +1150,19 @@ export const banMember = async (c: Context) => {
       }
     );
     io.to(serverId.toString()).emit("memberBanned", { userToBanId, serverId });
+    void fireWebhooksForEvent(serverId.toString(), "member_banned", { userId: userToBanId, reason }, io);
     await invalidateAfterServerUpdate(serverId);
+
+    const banNotification = await createNotification({
+      recipient: userToBanId,
+      type: "banned",
+      title: "You were banned from a server",
+      message: `You were banned from "${server.name}". Reason: ${reason}. You can file an appeal if you believe this was a mistake.`,
+      actionUrl: `/appeal?serverId=${serverId}&action=ban`,
+      metadata: { serverId, serverName: server.name },
+    });
+    if (banNotification) sendNotificationViaSocket(io, userToBanId, banNotification);
+
     return c.json({ message: "Member banned successfully" }, 200);
   } catch (error) {
     console.error("Error banning member:", error);
@@ -1170,7 +1228,7 @@ export const muteMember = async (c: Context) => {
     return c.json({ error: "Duration (in ms) is required" }, 400);
 
   try {
-    const server = await DiscordServer.findById(serverId).select("owner").lean();
+    const server = await DiscordServer.findById(serverId).select("owner name").lean();
     if (!server) return c.json({ error: "Server not found" }, 404);
     if (server.owner.toString() === userToMuteId) {
       return c.json({ error: "The server owner can't be muted." }, 403);
@@ -1220,6 +1278,18 @@ export const muteMember = async (c: Context) => {
       serverId,
       expiresAt,
     });
+    void fireWebhooksForEvent(serverId.toString(), "member_muted", { userId: userToMuteId, reason, expiresAt }, io);
+
+    const muteNotification = await createNotification({
+      recipient: userToMuteId,
+      type: "muted",
+      title: "You were muted in a server",
+      message: `You were muted in "${server.name}". Reason: ${reason}. You can file an appeal if you believe this was a mistake.`,
+      actionUrl: `/appeal?serverId=${serverId}&action=mute`,
+      metadata: { serverId, serverName: server.name, muteExpiresAt: expiresAt },
+    });
+    if (muteNotification) sendNotificationViaSocket(io, userToMuteId, muteNotification);
+
     return c.json({ message: "Member muted successfully" }, 200);
   } catch (error) {
     console.error("Error muting member:", error);
@@ -1274,6 +1344,91 @@ export const unmuteMember = async (c: Context) => {
   }
 };
 
+// Self-service join for a "public" visibility server — no invite code, no
+// admin approval. This was previously MISSING entirely: requestJoinServer
+// (below) has always rejected public servers with "you can join directly,"
+// but no such direct-join endpoint existed until the discovery directory
+// (frontend/app/discover) needed one to actually let a user join what they
+// find there.
+export const joinPublicServer = async (
+  c: Context<{ Variables: { user: UserPayload } }>
+) => {
+  const { serverId } = c.req.param();
+  const user = c.get("user");
+
+  if (!mongoose.Types.ObjectId.isValid(serverId)) {
+    return c.json({ error: "Invalid server ID format" }, 400);
+  }
+
+  try {
+    const server = await DiscordServer.findById(serverId);
+    if (!server) {
+      return c.json({ error: "Server not found" }, 404);
+    }
+    if (server.visibility !== "public") {
+      return c.json(
+        { error: "This server requires an invite or an approved join request." },
+        403
+      );
+    }
+
+    const existingMember = await ServerMember.findOne({
+      server: serverId,
+      user: user.id,
+    }).lean();
+    if (existingMember?.banned?.isBanned) {
+      return c.json({ error: "You have been banned from this server." }, 403);
+    }
+    if (existingMember) {
+      return c.json({ error: "You are already a member of this server" }, 400);
+    }
+
+    await DiscordServer.findByIdAndUpdate(serverId, {
+      $push: { members: { user: user.id, roles: ["member"] } },
+    });
+    await ServerMember.findOneAndUpdate(
+      { server: serverId, user: user.id },
+      { $set: { roles: ["member"] } },
+      { upsert: true },
+    );
+    await User.findByIdAndUpdate(user.id, { $addToSet: { servers: serverId } });
+
+    await invalidateAfterServerUpdate(serverId);
+
+    const io = c.get("io" as any) as Server | undefined;
+    if (io) {
+      void fireWebhooksForEvent(serverId.toString(), "member_joined", {
+        userId: user.id,
+        name: user.email,
+      }, io);
+      io.to(serverId.toString()).emit("serverUpdated", {
+        serverId,
+        updateType: "newMember",
+        userId: user.id,
+      });
+      io.to(serverId.toString()).emit("memberJoined", { userId: user.id });
+    }
+
+    if (server.owner.toString() !== user.id) {
+      const notification = await createNotification({
+        recipient: server.owner.toString(),
+        sender: user.id,
+        type: "member_joined",
+        title: "New Member Joined",
+        message: `Someone joined ${server.name}`,
+        metadata: { serverId: server._id, serverName: server.name, newMemberId: user.id },
+        actionUrl: `/community/${server._id}`,
+      });
+      if (io && notification) sendNotificationViaSocket(io, server.owner.toString(), notification);
+    }
+
+    return c.json({ message: "Joined server successfully", serverId }, 200);
+  } catch (error) {
+    console.error("Error joining public server:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
 export const requestJoinServer = async (
   c: Context<{ Variables: { user: UserPayload } }>
 ) => {
@@ -1294,7 +1449,7 @@ export const requestJoinServer = async (
       return c.json(
         {
           error:
-            "This is a public server. You can join directly without a request.",
+            "This is a public server. Use the direct-join endpoint instead of requesting.",
         },
         400
       );
@@ -1518,6 +1673,11 @@ export const approveJoinRequest = async (
         serverId,
         serverName: server.name,
       });
+
+      void fireWebhooksForEvent(serverId.toString(), "member_joined", {
+        userId: requestUserId,
+        name: requestUser?.name,
+      }, io);
 
       io.to(serverId.toString()).emit("serverUpdated", {
         serverId,

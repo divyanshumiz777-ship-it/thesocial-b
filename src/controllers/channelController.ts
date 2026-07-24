@@ -11,6 +11,7 @@ import { Server } from "socket.io";
 import ServerMember from "../models/ServerMember.ts";
 import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
 import { invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
+import { fireWebhooksForEvent } from "../lib/webhookEvents.ts";
 
 export const createChannel = async (c: Context) => {
   const { serverId } = c.req.param();
@@ -92,6 +93,11 @@ export const createChannel = async (c: Context) => {
           channel,
         });
       }
+      void fireWebhooksForEvent(serverId, "channel_created", {
+        channelId: channel._id.toString(),
+        name: channel.name,
+        type: channel.type,
+      }, io);
     } catch {}
 
     return c.json({
@@ -333,6 +339,10 @@ export const deleteChannel = async (c: Context) => {
           channelId,
         });
       }
+      void fireWebhooksForEvent(channel.server.toString(), "channel_deleted", {
+        channelId,
+        name: deletedChannel.name,
+      }, io);
     } catch {}
 
     return c.json({

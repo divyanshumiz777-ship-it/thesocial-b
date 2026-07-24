@@ -9,6 +9,9 @@ vi.mock("../src/lib/aiServiceClient.ts", () => ({
 vi.mock("../src/lib/reelRecommendation.ts", () => ({
   getPersonalizedFeed: vi.fn(),
 }));
+vi.mock("../src/lib/chatServiceClient.ts", () => ({
+  forwardGenerateReelCaptions: vi.fn(),
+}));
 vi.mock("../src/models/Reel.ts", () => ({ Reel: { find: vi.fn() } }));
 
 import { resolvePersonalizedFeed } from "../src/controllers/reelController";

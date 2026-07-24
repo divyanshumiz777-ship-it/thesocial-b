@@ -15,6 +15,7 @@ import {
   markMessageAsRead,
   markMessagesAsRead,
 } from "../controllers/featureController.ts";
+import { forwardMessage, getForwardTargets } from "../controllers/forwardController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 export const messageRouter = new Hono();
 
@@ -39,3 +40,5 @@ messageRouter.put("/pin/:messageId", authMiddleware, togglePinMessage);
 messageRouter.get("/pinned", authMiddleware, getPinnedMessages);
 messageRouter.put("/mark-read/:messageId", authMiddleware, markMessageAsRead);
 messageRouter.post("/mark-read-bulk", authMiddleware, markMessagesAsRead);
+messageRouter.get("/forward-targets", authMiddleware, getForwardTargets);
+messageRouter.post("/:messageId/forward", authMiddleware, forwardMessage);

@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Notification from "../models/Notification.ts";
 import User from "../models/User.ts";
 import { Server } from "socket.io";
+import { sendPushToUser } from "../lib/webPush.ts";
 
 interface UserPayload {
   id: string;
@@ -43,6 +44,16 @@ export const createNotification = async (data: {
       .populate("sender", "name profilePic")
       .populate("recipient", "name")
       .lean();
+
+    // Fire-and-forget — a push failure (or no subscriptions/VAPID unset)
+    // never blocks notification creation; the in-app notification already
+    // exists regardless of push delivery.
+    void sendPushToUser(data.recipient, {
+      title: data.title,
+      body: data.message,
+      actionUrl: data.actionUrl,
+      notificationId: notification._id.toString(),
+    });
 
     return populatedNotification;
   } catch (error) {

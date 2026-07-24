@@ -21,6 +21,8 @@ export interface IReel extends Document {
   isDeleted: boolean;
   isPinned: boolean;
   pinnedAt?: Date;
+  captionsVtt?: string;
+  captionsStatus: "pending" | "ready" | "unavailable";
 }
 
 const ReelSchema = new Schema<IReel>({
@@ -102,6 +104,14 @@ const ReelSchema = new Schema<IReel>({
   },
   pinnedAt: {
     type: Date,
+  },
+  captionsVtt: {
+    type: String,
+  },
+  captionsStatus: {
+    type: String,
+    enum: ["pending", "ready", "unavailable"],
+    default: "pending",
   },
 });
 

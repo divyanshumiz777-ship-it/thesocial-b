@@ -21,6 +21,17 @@ export interface ICallInfo {
   caller: Types.ObjectId;
 }
 
+// Denormalized (name copied at forward time) so a "Forwarded from X" label
+// still renders sensibly even if the original sender later changes their
+// name or the original message/conversation becomes inaccessible to the
+// viewer — this is attribution metadata on a brand-new message the forwarder
+// owns, not a live reference the original author could retract.
+export interface IForwardedFrom {
+  messageId: Types.ObjectId;
+  senderId: Types.ObjectId;
+  senderName: string;
+}
+
 export interface IMessage extends Document {
   content: string;
   formattedContent?: string;
@@ -59,6 +70,7 @@ export interface IMessage extends Document {
   // instead of a normal bubble. `content` is still set to a plain-text
   // fallback for search/notifications, but callInfo is what the UI checks.
   callInfo?: ICallInfo;
+  forwardedFrom?: IForwardedFrom;
 }
 
 const ReactionSchema = new Schema<IReaction>(
@@ -98,6 +110,15 @@ const CallInfoSchema = new Schema<ICallInfo>(
   { _id: false }
 );
 
+const ForwardedFromSchema = new Schema<IForwardedFrom>(
+  {
+    messageId: { type: Schema.Types.ObjectId, ref: "Message", required: true },
+    senderId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    senderName: { type: String, required: true },
+  },
+  { _id: false }
+);
+
 const MessageSchema = new Schema<IMessage>(
   {
     content: { type: String },
@@ -128,6 +149,7 @@ const MessageSchema = new Schema<IMessage>(
     ],
     deliveredTo: [{ type: Schema.Types.ObjectId, ref: "User" }],
     callInfo: { type: CallInfoSchema },
+    forwardedFrom: { type: ForwardedFromSchema },
   },
   { timestamps: true }
 );
