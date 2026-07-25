@@ -17,7 +17,11 @@ export const ALLOWED_MIME_TYPES = {
     "image/svg+xml",
   ],
   video: ["video/mp4", "video/webm", "video/quicktime"],
-  audio: ["audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4"],
+  // audio/webm is what MediaRecorder produces for voice messages in
+  // Chrome/Firefox (reported as "audio/webm;codecs=opus" — see
+  // normalizeMimeType below, which strips the codec parameter before this
+  // list is checked).
+  audio: ["audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "audio/webm"],
   document: [
     "application/pdf",
     "application/msword",
@@ -28,13 +32,21 @@ export const ALLOWED_MIME_TYPES = {
   ],
 };
 
+// Browsers report a recorder's MIME type with a codec parameter attached
+// (e.g. "audio/webm;codecs=opus"), which never exact-matches the bare
+// entries in ALLOWED_MIME_TYPES — strip it before comparing.
+function normalizeMimeType(mimeType: string): string {
+  return mimeType.split(";")[0].trim().toLowerCase();
+}
+
 export function getFileType(
   mimeType: string
 ): "image" | "video" | "document" | "audio" | "unknown" {
-  if (ALLOWED_MIME_TYPES.image.includes(mimeType)) return "image";
-  if (ALLOWED_MIME_TYPES.video.includes(mimeType)) return "video";
-  if (ALLOWED_MIME_TYPES.audio.includes(mimeType)) return "audio";
-  if (ALLOWED_MIME_TYPES.document.includes(mimeType)) return "document";
+  const normalized = normalizeMimeType(mimeType);
+  if (ALLOWED_MIME_TYPES.image.includes(normalized)) return "image";
+  if (ALLOWED_MIME_TYPES.video.includes(normalized)) return "video";
+  if (ALLOWED_MIME_TYPES.audio.includes(normalized)) return "audio";
+  if (ALLOWED_MIME_TYPES.document.includes(normalized)) return "document";
   return "unknown";
 }
 
