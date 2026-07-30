@@ -52,6 +52,7 @@ export const getForwardTargets = async (c: Context) => {
         const other = conv.participants.find((p: any) => p._id.toString() !== userId);
         return {
           _id: conv._id,
+          otherUserId: other?._id?.toString() ?? "",
           name: other?.name ?? "Unknown",
           profilePic: other?.profilePic ?? "",
         };

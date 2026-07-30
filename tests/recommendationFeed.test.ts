@@ -59,6 +59,15 @@ describe("resolvePersonalizedFeed — gated recommendation integration", () => {
     expect(getPersonalizedFeed).not.toHaveBeenCalled();
   });
 
+  it("calls fetchRecommendedFeed with retries: 0 — a single attempt, not fetchRecommendedFeed's own default retry", async () => {
+    (isRecommendationServiceEnabled as any).mockReturnValue(true);
+    (fetchRecommendedFeed as any).mockResolvedValue(null);
+
+    await resolvePersonalizedFeed("u1", 20);
+
+    expect(fetchRecommendedFeed).toHaveBeenCalledWith("u1", { limit: 20, retries: 0 });
+  });
+
   it("flag ON + rec returns null → fallback to heuristic", async () => {
     (isRecommendationServiceEnabled as any).mockReturnValue(true);
     (fetchRecommendedFeed as any).mockResolvedValue(null);

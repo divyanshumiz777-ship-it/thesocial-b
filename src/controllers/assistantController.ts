@@ -89,7 +89,15 @@ export async function handleSearch(c: Context) {
     ? (body.types as unknown[]).filter((t): t is string => typeof t === "string")
     : undefined;
 
-  const result = await forwardSearch(user.id, { query, types });
+  // Clamp defensively even though chat-service validates too — a caller
+  // sending an out-of-range value should get a working (clamped) request
+  // rather than a 422 bubbled up from a service most callers don't know exists.
+  const rawLimit = typeof body.limit === "number" ? body.limit : undefined;
+  const limit = rawLimit !== undefined ? Math.min(50, Math.max(1, Math.floor(rawLimit))) : undefined;
+  const rawOffset = typeof body.offset === "number" ? body.offset : undefined;
+  const offset = rawOffset !== undefined ? Math.max(0, Math.floor(rawOffset)) : undefined;
+
+  const result = await forwardSearch(user.id, { query, types, limit, offset });
 
   if (!result) {
     return c.json({ error: "Search is temporarily unavailable" }, 503);

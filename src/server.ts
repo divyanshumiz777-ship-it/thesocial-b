@@ -521,7 +521,15 @@ async function startServer() {
           lastSeen: lastSeen.toISOString(),
         });
         try {
-          await User.findByIdAndUpdate(userId, { lastSeen });
+          // lastDisconnectedAt is distinct from lastSeen: lastSeen is also
+          // bumped by a 15-minute heartbeat while a user stays actively
+          // online (AuthProvider.tsx's updateLastSeen), so it can't answer
+          // "how long has this user genuinely been away" — it's only ever
+          // "recent" for an active session. This field only ever changes
+          // here, at a real last-socket-disconnect, making it the clean
+          // away-duration signal the Catch Me Up digest's eligibility check
+          // needs.
+          await User.findByIdAndUpdate(userId, { lastSeen, lastDisconnectedAt: lastSeen });
         } catch (err) {
           console.error("Failed to persist lastSeen on offline:", err);
         }

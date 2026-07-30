@@ -18,7 +18,13 @@ import {
 } from "../lib/aiServiceClient.ts";
 import { canViewFullProfile } from "../lib/profilePrivacy.ts";
 import { canViewRelationships } from "./followController.ts";
-import { forwardGenerateReelCaptions } from "../lib/chatServiceClient.ts";
+import {
+  forwardGenerateReelCaptions,
+  forwardDeleteContent,
+  isChatServiceEnabled,
+} from "../lib/chatServiceClient.ts";
+import logger from "../lib/logger.ts";
+import { deriveVideoThumbnailUrl } from "../lib/cloudinary.ts";
 
 const MAX_PINNED_REELS = 3;
 
@@ -213,17 +219,41 @@ export const resolvePersonalizedFeed = async (
 ): Promise<any[]> => {
   if (isRecommendationServiceEnabled()) {
     try {
-      const reelIds = await fetchRecommendedFeed(userId, { limit });
+      // retries: 0 — fetchRecommendedFeed's own retry loop doesn't forward
+      // its retries option down into callInternalService, so leaving this
+      // unset let a slow-but-not-yet-tripped-breaker service cost up to
+      // ~500ms (two back-to-back 250ms-timeout attempts) before falling
+      // back. Capping at a single attempt bounds worst-case added latency to
+      // ~250ms and lets the circuit breaker — not per-request retries —
+      // absorb sustained slowness.
+      const reelIds = await fetchRecommendedFeed(userId, { limit, retries: 0 });
       if (reelIds && reelIds.length > 0) {
         const hydrated = await hydratePersonalizedReels(reelIds);
-        if (hydrated.length > 0) return hydrated;
+        if (hydrated.length > 0) {
+          logger.info(
+            { userId, reason: "rec-ok", count: hydrated.length },
+            "resolvePersonalizedFeed: served from recommendation service",
+          );
+          return hydrated;
+        }
+        logger.info(
+          { userId, reason: "empty-hydration" },
+          "resolvePersonalizedFeed: recommendation ids returned no hydratable reels — falling back",
+        );
+      } else {
+        logger.info(
+          { userId, reason: "empty-or-unavailable" },
+          "resolvePersonalizedFeed: recommendation service returned nothing — falling back",
+        );
       }
     } catch (error) {
-      console.error(
-        "Recommendation service feed failed; falling back to heuristic:",
-        error,
+      logger.warn(
+        { userId, reason: "exception", error: error instanceof Error ? error.message : String(error) },
+        "resolvePersonalizedFeed: recommendation service call threw — falling back to heuristic",
       );
     }
+  } else {
+    logger.debug({ userId, reason: "disabled" }, "resolvePersonalizedFeed: recommendation service disabled");
   }
   // Default + fallback: existing heuristic — behavior identical to today.
   return getPersonalizedFeed(userId, limit);
@@ -325,10 +355,16 @@ export const createReel = async (c: Context) => {
       );
     }
 
+    // The uploader never sends a thumbnail today — derive one from the
+    // video's own first frame rather than leaving every reel without a
+    // thumbnail. Only used as a fallback: an explicitly supplied
+    // thumbnailUrl (if a future upload flow ever sends one) still wins.
+    const resolvedThumbnailUrl = thumbnailUrl || deriveVideoThumbnailUrl(videoUrl);
+
     const reel = new Reel({
       creator_id: Types.ObjectId.createFromHexString(creator_id),
       videoUrl,
-      thumbnailUrl,
+      thumbnailUrl: resolvedThumbnailUrl,
       caption,
       tags: tags ?? [],
       language: language ?? "en",
@@ -562,6 +598,13 @@ export const deleteReel = async (c: Context) => {
 
     reel.isDeleted = true;
     await reel.save();
+
+    // Best-effort — the soft-delete has already committed either way; a
+    // failure here only means this reel keeps surfacing through
+    // search/the assistant a while longer, never a reason to roll it back.
+    if (isChatServiceEnabled()) {
+      void forwardDeleteContent("source", reelId, "reel");
+    }
 
     return c.json({ message: "Reel deleted successfully" }, 200);
   } catch (error) {

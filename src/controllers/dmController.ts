@@ -11,6 +11,7 @@ import {
 } from "../lib/cacheInvalidation.ts";
 import { formatSingleConversationForUser } from "../lib/dmFormatting.ts";
 import { isMemberDmBlocked } from "../lib/serverPrivacy.ts";
+import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
 
 /**
  * Emits a lightweight conversation-list update to each participant's personal
@@ -451,6 +452,14 @@ export const deleteMessage = async (c: Context) => {
           messageId: messageId.toString(),
         });
       }
+
+      // Only for "for-everyone" — a "for-me" hide is per-user (deletedFor)
+      // and must not remove the message from search for the other
+      // participant. Best-effort — the Mongo update already committed
+      // either way.
+      if (isChatServiceEnabled()) {
+        void forwardDeleteContent("source", messageId, "message");
+      }
     } else {
       if (!message.deletedFor) {
         message.deletedFor = [];
@@ -507,6 +516,13 @@ export const deleteDm = async (c: Context) => {
     if (!deletedConversation.participants.length) {
       await Message.deleteMany({ conversationId });
       await Conversation.findByIdAndDelete(conversationId);
+
+      // Best-effort — the Mongo deletes have already committed either way;
+      // a failure here only means this conversation's messages keep
+      // surfacing through search/the assistant a while longer.
+      if (isChatServiceEnabled()) {
+        void forwardDeleteContent("conversation", conversationId);
+      }
     } else {
       if (io) {
         io.to(conversationId).emit("conversationUpdated", deletedConversation);

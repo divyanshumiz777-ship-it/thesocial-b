@@ -46,6 +46,7 @@
     "nodemon": "^3.1.10",
     "pino": "^10.1.0",
     "pino-pretty": "^13.1.2",
+    "razorpay": "^2.9.8",
     "socket.io": "^4.8.3",
     "stripe": "^22.3.2",
     "tsup": "^8.5.1",

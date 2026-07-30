@@ -76,6 +76,7 @@ export interface ChatResponse {
 
 export interface SearchResponse {
   results: ChatCitation[];
+  has_more?: boolean;
 }
 
 export interface ConversationSummary {
@@ -157,7 +158,7 @@ export async function forwardChat(
 
 export async function forwardSearch(
   userId: string,
-  body: { query: string; types?: string[] }
+  body: { query: string; types?: string[]; limit?: number; offset?: number }
 ): Promise<SearchResponse | null> {
   const result = await callInternalService<SearchResponse>(
     CHAT_URL,
@@ -217,7 +218,7 @@ export async function forwardGetCapabilities(
 // the deleted content keeps surfacing through search/the assistant a while
 // longer; it never blocks or reverts the actual delete operation.
 export async function forwardDeleteContent(
-  scope: "server" | "channel" | "source",
+  scope: "server" | "channel" | "source" | "conversation" | "group",
   id: string,
   sourceType?: string,
 ): Promise<boolean> {
@@ -352,6 +353,18 @@ export interface CatchMeUpResponse {
     messageCount: number;
     mentionCount: number;
     topChannel: string | null;
+  }>;
+  dmHighlights?: Array<{
+    text: string;
+    sender: string;
+    conversationId: string;
+    ts: string;
+  }>;
+  reelHighlights?: Array<{
+    reelId: string;
+    creatorName: string;
+    caption: string;
+    ts: string;
   }>;
 }
 

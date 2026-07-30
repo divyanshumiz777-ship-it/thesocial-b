@@ -8,6 +8,7 @@ import mongoose from "mongoose";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { getCloudinaryResourceType } from "../lib/fileUpload.ts";
 import CacheInvalidator from "../lib/cacheInvalidation.ts";
+import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
 
 const groupDmController = new Hono();
 
@@ -594,6 +595,13 @@ export const deleteGroup = async (c: Context) => {
     await Message.deleteMany({ groupId });
     await Group.findByIdAndDelete(groupId);
 
+    // Best-effort — the Mongo deletes have already committed either way; a
+    // failure here only means this group's messages keep surfacing through
+    // search/the assistant a while longer.
+    if (isChatServiceEnabled()) {
+      void forwardDeleteContent("group", groupId);
+    }
+
     notifyUsers(recipients, "group-dm:deleted", { groupId });
 
     return c.json({ success: true });
@@ -1006,6 +1014,13 @@ const deleteGroupMessage = async (c: Context) => {
     }
 
     await Message.findByIdAndDelete(messageId);
+
+    // Unlike channel/DM messages, group-DM message deletes have no
+    // "for-me"/"for-everyone" split — this is always a genuine hard delete,
+    // so unlike those, there's no chunker-quirk risk in tombstoning it here.
+    if (isChatServiceEnabled()) {
+      void forwardDeleteContent("source", messageId, "message");
+    }
 
     const io = getIoInstance();
     io.to(groupId).emit("messageDeleted", messageId);

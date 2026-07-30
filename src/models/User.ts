@@ -9,6 +9,13 @@ interface IUser extends Document {
   bannerUrl?: string;
   verified?: boolean;
   lastSeen: Date;
+  // The away-duration signal for the Catch Me Up digest's eligibility
+  // check — distinct from BOTH lastSeen (also bumped by a 15-minute
+  // heartbeat while actively online, so it can't tell "just now" from
+  // "yesterday") and catchMeUpSeenAt below (tracks digest consumption, not
+  // session boundaries). Only ever set in server.ts's markOffline, at a
+  // real last-socket-disconnect.
+  lastDisconnectedAt?: Date;
   // Separate watermark for the Catch Me Up digest — NOT the same as
   // lastSeen, which gets bumped every 15 minutes by a presence heartbeat
   // (see frontend/components/AuthProvider.tsx) even while the user is
@@ -16,6 +23,11 @@ interface IUser extends Document {
   // ~15 minutes ago." This only ever advances when a digest is actually
   // fetched (see digestController.ts).
   catchMeUpSeenAt?: Date;
+  // Replaces the old per-creator Stripe Connect "chargesEnabled" account
+  // check — under the collect-only Razorpay model (see razorpayClient.ts)
+  // there's no per-creator payout account to verify, just an explicit
+  // opt-in toggle a creator flips in their settings to show a tip button.
+  tipsEnabled?: boolean;
   servers?: Types.ObjectId[];
   roles?: Types.ObjectId[];
   password?: string;
@@ -114,7 +126,9 @@ const UserSchema = new Schema<IUser>({
   friends: [{ type: Schema.Types.ObjectId, ref: "User" }],
   blockedUsers: [{ type: Schema.Types.ObjectId, ref: "User" }],
   lastSeen: { type: Date, default: Date.now },
+  lastDisconnectedAt: { type: Date },
   catchMeUpSeenAt: { type: Date },
+  tipsEnabled: { type: Boolean, default: false },
   provider: { type: String, default: "credentials" },
   providerAccountId: { type: String },
   servers: [{ type: Schema.Types.ObjectId, ref: "DiscordServer" }],

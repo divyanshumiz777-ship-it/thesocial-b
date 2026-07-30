@@ -22,8 +22,8 @@ return count
 // Route-class limits
 function getLimit(path: string): { window: number; max: number } {
   if (path.startsWith("/api/v1/auth/")) return { window: 60_000, max: 10 };
-  // Stripe's own signature verification (inside handleStripeWebhook) is the
-  // real gate here — a per-IP cap tuned for a browser client would risk
+  // Razorpay's own signature verification (inside handleRazorpayWebhook) is
+  // the real gate here — a per-IP cap tuned for a browser client would risk
   // dropping legitimate webhook deliveries during a burst of renewal events
   // (e.g. many subscriptions all billing on the 1st of the month).
   if (path.startsWith("/api/v1/payments/webhook")) return { window: 60_000, max: 500 };

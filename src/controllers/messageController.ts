@@ -22,6 +22,7 @@ import {
   getFileType as getSharedFileType,
   getCloudinaryResourceType,
 } from "../lib/fileUpload.ts";
+import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
 
 export const searchMessages = async (c: Context) => {
   const { channelId } = c.req.param();
@@ -348,6 +349,17 @@ export const deleteMessage = async (c: Context) => {
         messageId,
         type: "for-everyone",
       });
+
+      // Only for "for-everyone" — NOT "for-me". A "for-me" hide is a
+      // per-user visibility flag (deletedFor), and a pre-existing chunker
+      // quirk (normalize_channel_message) already excludes a whole chunk if
+      // ANY member has deletedFor set on it, backwards from the per-user ACL
+      // DM/group messages get. Forwarding a delete here would make that
+      // worse — an immediate global hide instead of just a stale one until
+      // the next re-ingest — so only a genuine for-everyone delete tombstones.
+      if (isChatServiceEnabled()) {
+        void forwardDeleteContent("source", messageId, "message");
+      }
     } else {
       if (!message.deletedFor) {
         message.deletedFor = [];

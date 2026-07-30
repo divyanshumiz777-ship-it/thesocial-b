@@ -4,10 +4,22 @@ vi.mock("../src/models/User.ts", () => ({
   default: { findById: vi.fn(), findByIdAndUpdate: vi.fn() },
 }));
 vi.mock("../src/models/Conversation.ts", () => ({
-  default: { findOne: vi.fn(), findById: vi.fn(), create: vi.fn() },
+  default: {
+    findOne: vi.fn(),
+    findById: vi.fn(),
+    create: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+    findByIdAndDelete: vi.fn(),
+  },
 }));
 vi.mock("../src/models/Message.ts", () => ({
-  default: { find: vi.fn(), findOne: vi.fn(), countDocuments: vi.fn() },
+  default: {
+    find: vi.fn(),
+    findOne: vi.fn(),
+    findById: vi.fn(),
+    countDocuments: vi.fn(),
+    deleteMany: vi.fn(),
+  },
 }));
 vi.mock("../src/models/ConversationReadStatus.ts", () => ({
   default: { findOne: vi.fn() },
@@ -16,16 +28,23 @@ vi.mock("../src/lib/cacheInvalidation.ts", () => ({
   invalidateAfterDM: vi.fn(),
   invalidateAfterFollowChange: vi.fn(),
 }));
+vi.mock("../src/lib/chatServiceClient.ts", () => ({
+  forwardDeleteContent: vi.fn(),
+  isChatServiceEnabled: vi.fn(),
+}));
 
 import User from "../src/models/User.ts";
 import Conversation from "../src/models/Conversation.ts";
 import Message from "../src/models/Message.ts";
 import ConversationReadStatus from "../src/models/ConversationReadStatus.ts";
+import { forwardDeleteContent, isChatServiceEnabled } from "../src/lib/chatServiceClient.ts";
 import {
   findOrRestoreDm,
   getDm,
   getConversationTheme,
   setConversationTheme,
+  deleteMessage,
+  deleteDm,
 } from "../src/controllers/dmController.ts";
 
 const ME = "507f1f77bcf86cd799439001";
@@ -444,5 +463,110 @@ describe("setConversationTheme", () => {
       { $unset: { [`settings.conversationThemes.${CONV_ID}`]: "" } }
     );
     expect(calls[0].body).toEqual({ success: true, theme: null });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Qdrant tombstoning — deleteMessage("for-everyone" only) / deleteDm
+// ---------------------------------------------------------------------------
+
+describe("deleteMessage — Qdrant tombstone forwarding", () => {
+  const MSG_ID = "507f1f77bcf86cd799439055";
+
+  beforeEach(() => {
+    (isChatServiceEnabled as any).mockReturnValue(true);
+  });
+
+  it("forwards a for-everyone delete as a 'source'/'message' tombstone", async () => {
+    const message: any = {
+      _id: MSG_ID,
+      sender: { toString: () => ME },
+      save: vi.fn().mockResolvedValue(true),
+    };
+    (Message.findById as any).mockResolvedValue(message);
+    (Conversation.findById as any).mockReturnValue(selectResolves({ participants: [ME, FRIEND] }));
+
+    const { c } = mockContext({
+      params: { conversationId: CONV_ID },
+      body: { messageId: MSG_ID, deleteType: "for-everyone" },
+    });
+    await deleteMessage(c);
+
+    expect(forwardDeleteContent).toHaveBeenCalledWith("source", MSG_ID, "message");
+  });
+
+  it("does NOT forward a for-me delete (would globally hide the message per a separate chunker quirk)", async () => {
+    const message: any = {
+      _id: MSG_ID,
+      sender: { toString: () => FRIEND },
+      deletedFor: [],
+      save: vi.fn().mockResolvedValue(true),
+    };
+    (Message.findById as any).mockResolvedValue(message);
+
+    const { c } = mockContext({
+      params: { conversationId: CONV_ID },
+      body: { messageId: MSG_ID, deleteType: "for-me" },
+    });
+    await deleteMessage(c);
+
+    expect(forwardDeleteContent).not.toHaveBeenCalled();
+  });
+
+  it("does not forward at all when the chat service is disabled", async () => {
+    (isChatServiceEnabled as any).mockReturnValue(false);
+    const message: any = {
+      _id: MSG_ID,
+      sender: { toString: () => ME },
+      save: vi.fn().mockResolvedValue(true),
+    };
+    (Message.findById as any).mockResolvedValue(message);
+    (Conversation.findById as any).mockReturnValue(selectResolves({ participants: [ME, FRIEND] }));
+
+    const { c } = mockContext({
+      params: { conversationId: CONV_ID },
+      body: { messageId: MSG_ID, deleteType: "for-everyone" },
+    });
+    await deleteMessage(c);
+
+    expect(forwardDeleteContent).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteDm — Qdrant tombstone forwarding", () => {
+  beforeEach(() => {
+    (isChatServiceEnabled as any).mockReturnValue(true);
+  });
+
+  it("forwards a 'conversation' tombstone once the last participant leaves", async () => {
+    (Conversation.findOneAndUpdate as any).mockResolvedValue({ participants: [] });
+    (Message.deleteMany as any).mockResolvedValue({});
+    (Conversation.findByIdAndDelete as any).mockResolvedValue({});
+
+    const { c } = mockContext({ params: { conversationId: CONV_ID } });
+    await deleteDm(c);
+
+    expect(forwardDeleteContent).toHaveBeenCalledWith("conversation", CONV_ID);
+  });
+
+  it("does not forward while the conversation still has a remaining participant", async () => {
+    (Conversation.findOneAndUpdate as any).mockResolvedValue({ participants: [FRIEND] });
+
+    const { c } = mockContext({ params: { conversationId: CONV_ID } });
+    await deleteDm(c);
+
+    expect(forwardDeleteContent).not.toHaveBeenCalled();
+  });
+
+  it("does not forward at all when the chat service is disabled", async () => {
+    (isChatServiceEnabled as any).mockReturnValue(false);
+    (Conversation.findOneAndUpdate as any).mockResolvedValue({ participants: [] });
+    (Message.deleteMany as any).mockResolvedValue({});
+    (Conversation.findByIdAndDelete as any).mockResolvedValue({});
+
+    const { c } = mockContext({ params: { conversationId: CONV_ID } });
+    await deleteDm(c);
+
+    expect(forwardDeleteContent).not.toHaveBeenCalled();
   });
 });

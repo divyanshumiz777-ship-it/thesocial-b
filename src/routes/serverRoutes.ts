@@ -32,7 +32,8 @@ import {
   createServerTier,
   listServerTiers,
   deactivateServerTier,
-  createTierCheckout,
+  createTierSubscription,
+  verifyTierSubscription,
 } from "../controllers/paymentController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 
@@ -80,4 +81,5 @@ serverRouter.get("/:serverId/unread-counts", authMiddleware, getUnreadCounts);
 serverRouter.get("/:serverId/tiers", authMiddleware, listServerTiers);
 serverRouter.post("/:serverId/tiers", authMiddleware, createServerTier);
 serverRouter.delete("/:serverId/tiers/:tierId", authMiddleware, deactivateServerTier);
-serverRouter.post("/:serverId/tiers/:tierId/subscribe", authMiddleware, createTierCheckout);
+serverRouter.post("/:serverId/tiers/:tierId/subscribe", authMiddleware, createTierSubscription);
+serverRouter.post("/:serverId/tiers/:tierId/verify", authMiddleware, verifyTierSubscription);

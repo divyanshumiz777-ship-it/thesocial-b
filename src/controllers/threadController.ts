@@ -5,6 +5,7 @@ import Channel from "../models/Channel.ts";
 import DiscordServer from "../models/DiscordServer.ts";
 import Message from "../models/Message.ts";
 import { Server } from "socket.io";
+import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
 
 const hasPermission = async (
   c: Context,
@@ -197,6 +198,14 @@ export const deleteThread = async (c: Context) => {
       return c.json({ error: "Thread not found" }, 404);
     }
 
+    // Best-effort — the Mongo delete has already committed either way; a
+    // failure here only means this thread's content keeps surfacing through
+    // search/the assistant a while longer, never a reason to roll back or
+    // delay the actual delete.
+    if (isChatServiceEnabled()) {
+      void forwardDeleteContent("source", threadId, "thread");
+    }
+
     const channelId = deletedThread.channel;
 
     await Channel.findByIdAndUpdate(channelId, {
@@ -329,6 +338,9 @@ export const deleteMessage = async (c: Context) => {
     const deletedMessage = await Message.findByIdAndDelete(messageId);
     if (!deletedMessage) {
       return c.json({ error: "Message not found" }, 404);
+    }
+    if (isChatServiceEnabled()) {
+      void forwardDeleteContent("source", messageId, "message");
     }
     const channelId = deletedMessage.channel?.toString();
     if (!channelId) {
