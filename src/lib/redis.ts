@@ -1,6 +1,7 @@
 import Redis from "ioredis";
 
-const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+const redisUrl =
+  process.env.REDIS_URL || "redis://red-d7v2vglb910c73akocvg:6379";
 
 const redis = new Redis(redisUrl, {
   maxRetriesPerRequest: 3,
@@ -55,7 +56,7 @@ export const cache = {
   async set(
     key: string,
     value: any,
-    ttlSeconds: number = 300
+    ttlSeconds: number = 300,
   ): Promise<boolean> {
     try {
       await redis.set(key, JSON.stringify(value), "EX", ttlSeconds);
@@ -86,7 +87,7 @@ export const cache = {
           "MATCH",
           pattern,
           "COUNT",
-          100
+          100,
         );
         cursor = nextCursor;
         if (keys.length) {
@@ -143,7 +144,7 @@ export const cache = {
   async setNX(
     key: string,
     value: any,
-    ttlSeconds: number = 300
+    ttlSeconds: number = 300,
   ): Promise<boolean> {
     try {
       const result = await redis.set(
@@ -151,7 +152,7 @@ export const cache = {
         JSON.stringify(value),
         "EX",
         ttlSeconds,
-        "NX"
+        "NX",
       );
       return result === "OK";
     } catch (error) {

@@ -160,6 +160,19 @@ const UserSchema = new Schema<IUser>({
     },
     theme: { type: String, default: "light" },
     language: { type: String, default: "en" },
+    accessibility: {
+      fontScale: {
+        type: String,
+        enum: ["sm", "md", "lg", "xl"],
+        default: "md",
+      },
+      highContrast: { type: Boolean, default: false },
+      motionPreference: {
+        type: String,
+        enum: ["system", "reduce", "no-preference"],
+        default: "system",
+      },
+    },
     connectedAccounts: [
       {
         provider: { type: String, required: true },

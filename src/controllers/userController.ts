@@ -27,6 +27,7 @@ export const updateUserSettings = async (c: Context) => {
       "notifications",
       "theme",
       "language",
+      "accessibility",
       "connectedAccounts",
       "mutedServers",
     ];
@@ -66,6 +67,19 @@ export const updateUserSettings = async (c: Context) => {
           update["settings.notifications"] = {
             ...(update["settings.notifications"] || {}),
             ...nUpdate,
+          };
+        } else if (field === "accessibility" && typeof body[field] === "object") {
+          const a11y = body[field] || {};
+          const aUpdate: any = {};
+          if (["sm", "md", "lg", "xl"].includes(a11y.fontScale))
+            aUpdate.fontScale = a11y.fontScale;
+          if (typeof a11y.highContrast === "boolean")
+            aUpdate.highContrast = a11y.highContrast;
+          if (["system", "reduce", "no-preference"].includes(a11y.motionPreference))
+            aUpdate.motionPreference = a11y.motionPreference;
+          update["settings.accessibility"] = {
+            ...(update["settings.accessibility"] || {}),
+            ...aUpdate,
           };
         } else {
           update[`settings.${field}`] = body[field];

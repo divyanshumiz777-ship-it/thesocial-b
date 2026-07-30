@@ -600,6 +600,14 @@ export const setNickname = async (c: Context) => {
       { nickname },
       { upsert: true, new: true }
     );
+
+    // Only the owner's own other tabs/devices should see this — a nickname
+    // is a private, viewer-only label, never visible to the friend it's
+    // set on. Every socket this user opens joins their own user.id room
+    // (server.ts), so targeting it reaches all of them and nobody else.
+    const io = getIoInstance();
+    io.to(user.id).emit("friend:nickname-updated", { friendId, nickname: doc.nickname });
+
     return c.json({ friendId, nickname: doc.nickname });
   } catch {
     return c.json({ error: "Failed to set nickname" }, 500);
@@ -613,6 +621,10 @@ export const removeNickname = async (c: Context) => {
     if (!friendId || !mongoose.Types.ObjectId.isValid(friendId))
       return c.json({ error: "Invalid friend ID" }, 400);
     await FriendNickname.deleteOne({ owner: user.id, friend: friendId });
+
+    const io = getIoInstance();
+    io.to(user.id).emit("friend:nickname-updated", { friendId, nickname: null });
+
     return c.json({ success: true });
   } catch {
     return c.json({ error: "Failed to remove nickname" }, 500);

@@ -19,6 +19,7 @@ import {
 } from "../lib/razorpayClient.ts";
 import { createNotification, sendNotificationViaSocket } from "./notificationController.ts";
 import { getIoInstance } from "../config/socket.ts";
+import { invalidateAfterUserUpdate } from "../lib/cacheInvalidation.ts";
 
 const MIN_TIP_PAISE = 100; // ₹1.00 — Razorpay's practical minimum for a card/UPI payment
 
@@ -54,6 +55,10 @@ export const setTipsEnabledStatus = async (c: Context) => {
     const body = await c.req.json().catch(() => ({}));
     const tipsEnabled = Boolean((body as { tipsEnabled?: boolean }).tipsEnabled);
     await User.updateOne({ _id: user.id }, { $set: { tipsEnabled } });
+    // cacheMiddleware caches this same GET for up to 60s per-viewer; without
+    // busting it here, the toggle appears to silently revert for up to a
+    // minute on any fresh GET (reload, new tab) until the entry expires.
+    await invalidateAfterUserUpdate(user.id.toString());
     return c.json({ tipsEnabled }, 200);
   } catch (error) {
     console.error("Error updating tips-enabled status:", error);
@@ -112,7 +117,10 @@ export const createTipOrder = async (c: Context) => {
     const order = await razorpay.orders.create({
       amount: amountPaise,
       currency: "INR",
-      receipt: `tip_${user.id}_${Date.now()}`,
+      // Razorpay caps `receipt` at 40 chars — the full sender ObjectId (24
+      // chars) plus a "tip_"/"_" prefix and a 13-digit timestamp came to 42
+      // and was silently rejected by the Orders API on every call.
+      receipt: `tip_${user.id.slice(-8)}_${Date.now()}`,
       notes: { senderId: user.id, recipientId: recipientUserId },
     });
 
