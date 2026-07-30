@@ -102,6 +102,9 @@ if (!isTest) {
       // already provides liveness for THIS session" class of route as get-dm
       "/api/v1/notification", // always needs fresh
       "/api/v1/user/settings", // settings must be current
+      "/api/v1/user/account-info", // gates the password-change form's visibility —
+      // a stale cached response right after linking/unlinking a provider (or in a
+      // test/dev cycle) would show the wrong form state or a confusing error
       "/api/v1/auth/", // never cache auth
       "/api/v1/user/friends", // always reflects current friend list
       "/api/v1/friends/requests/", // pending/sent requests must be fresh after accept/reject

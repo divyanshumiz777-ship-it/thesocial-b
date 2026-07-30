@@ -3,6 +3,7 @@ import User from "../models/User.ts";
 import argon2 from "argon2";
 import { Buffer } from "node:buffer";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
+import { verifyTotpCode, verifyAndConsumeBackupCode } from "../lib/twoFactor.ts";
 import {
   RegisterSchema,
   LoginSchema,
@@ -163,7 +164,20 @@ export const loginUser = async (
   const body = c.req.valid("json");
 
   try {
-    const user = await User.findOne({ email: body.email }).select("+password");
+    // Every extra field named here MUST keep its own "+" prefix. Mongoose's
+    // select() treats a mix of "+hiddenField" with any plain (unprefixed)
+    // field name as a full inclusion-mode projection — i.e. ONLY the named
+    // fields (+ _id) come back, silently dropping every other default
+    // field (provider, email, ...). That previously made `user.provider`
+    // undefined here, so the very next check ("not credentials provider")
+    // rejected every single login, 2FA or not, with a generic "Invalid
+    // email or password" — caught via live-browser verification, not by
+    // the (mocked-User) unit tests, which never exercise real projection
+    // behavior. twoFactorEnabled needs no prefix at all: it's a normal
+    // (non select:false) field, already present on the default projection.
+    const user = await User.findOne({ email: body.email }).select(
+      "+password +twoFactorSecret +twoFactorBackupCodes",
+    );
 
     if (!user || user.provider !== "credentials" || !user.password) {
       return c.json({ message: "Invalid email or password" }, 401);
@@ -175,8 +189,38 @@ export const loginUser = async (
       return c.json({ message: "Invalid email or password" }, 401);
     }
 
+    if (user.twoFactorEnabled) {
+      // Password alone is correct but not sufficient — tell the caller a
+      // second factor is needed rather than logging in. A 200 here (not an
+      // error status) since this isn't a failure, it's the expected next
+      // step; NextAuth's authorize() (route.ts) checks this flag itself and
+      // throws its own distinct error so the frontend can tell "need a
+      // code" apart from "wrong password".
+      if (!body.twoFactorCode) {
+        return c.json({ requiresTwoFactor: true }, 200);
+      }
+
+      const totpOk = user.twoFactorSecret
+        ? await verifyTotpCode(user.twoFactorSecret, body.twoFactorCode)
+        : false;
+
+      if (!totpOk) {
+        const remainingBackupCodes = await verifyAndConsumeBackupCode(
+          user.twoFactorBackupCodes ?? [],
+          body.twoFactorCode,
+        );
+        if (remainingBackupCodes === null) {
+          return c.json({ message: "Invalid two-factor code" }, 401);
+        }
+        user.twoFactorBackupCodes = remainingBackupCodes;
+        await user.save();
+      }
+    }
+
     const userObject = user.toObject();
     delete userObject.password;
+    delete userObject.twoFactorSecret;
+    delete userObject.twoFactorBackupCodes;
 
     return c.json({ user: userObject });
   } catch (error) {

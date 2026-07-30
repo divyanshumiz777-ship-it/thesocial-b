@@ -40,6 +40,18 @@ interface IUser extends Document {
   providerAccountId?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
+  // TOTP-based 2FA. twoFactorSecret is written as soon as setup starts (see
+  // twoFactorController.ts::setup) but twoFactorEnabled only flips to true
+  // once the user proves they actually saved it (verifySetup) — an
+  // abandoned setup just leaves an unused secret sitting here, harmless
+  // since nothing checks it until enabled is true. Both select:false, same
+  // as password, so a normal .findById never leaks them.
+  twoFactorEnabled?: boolean;
+  twoFactorSecret?: string;
+  // Argon2 hashes, never plaintext at rest — the plaintext codes are shown
+  // to the user exactly once (right after verifySetup, or after a
+  // regenerate call) and can't be retrieved again after that.
+  twoFactorBackupCodes?: string[];
   createdAt?: Date;
   updatedAt?: Date;
   customStatus?: {
@@ -113,6 +125,9 @@ const UserSchema = new Schema<IUser>({
     minlength: [6, "Password must be at least 6 characters long"],
     select: false,
   },
+  twoFactorEnabled: { type: Boolean, default: false },
+  twoFactorSecret: { type: String, select: false },
+  twoFactorBackupCodes: { type: [String], select: false, default: undefined },
   profilePic: {
     type: String,
     default: "",

@@ -1,3 +1,25 @@
+// Lets the Settings UI decide whether to show the change-password form at
+// all — an OAuth-only account (provider !== "credentials") has no local
+// password to change, and submitting that form for one always 400s from
+// changePassword below ("This account doesn't use a password to sign in.").
+// Surfacing that up front avoids a user filling out both fields just to
+// hit a confusing error after the fact.
+export const getAccountInfo = async (c: Context) => {
+  const { id } = c.get("user");
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return c.json({ error: "Invalid user ID format" }, 400);
+  }
+  // +password only — provider is already on the default projection; see
+  // the comment on loginUser in authController.ts for why mixing a plain
+  // field name in here alongside "+password" would be a real bug, not just
+  // style.
+  const user = await User.findById(id).select("+password");
+  if (!user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+  return c.json({ hasPassword: !!user.password && user.provider === "credentials" });
+};
+
 export const getUserSettings = async (c: Context) => {
   const { id } = c.get("user");
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -157,6 +179,7 @@ export const updateServerNotificationSettings = async (c: Context) => {
   }
 };
 import mongoose from "mongoose";
+import argon2 from "argon2";
 import { Context } from "hono";
 import { verify } from "hono/jwt";
 import User from "../models/User.ts";
@@ -180,6 +203,7 @@ import Follow from "../models/Follow.ts";
 import { Reel } from "../models/Reel.ts";
 import { canViewRelationships } from "./followController.ts";
 import { redactParticipant } from "../lib/dmFormatting.ts";
+import { ChangePasswordSchema } from "../lib/validators.ts";
 
 function computeCreatorLevel(followerCount: number): string {
   if (followerCount >= 10000) return "Top Creator";
@@ -509,6 +533,42 @@ export const editUser = async (c: Context) => {
     return c.json({ error: "Internal server error" }, 500);
   }
 };
+
+// editUser above never handled a password field (it only ever wrote name/
+// profilePic) — the Settings page's "Update Password" form posted here for
+// months and got a silent, no-op "success" back, never actually changing
+// anything. Real support lives in its own endpoint: requires proving the
+// CURRENT password (never trust a body-supplied id/password swap on a
+// bearer-authenticated request), scoped strictly to the caller's own
+// account via authMiddleware's c.get("user").id, never a body/param id.
+export const changePassword = async (
+  c: Context<any, any, { in: { json: ChangePasswordSchema }; out: { json: ChangePasswordSchema } }>,
+) => {
+  const { id } = c.get("user");
+  const { currentPassword, newPassword } = c.req.valid("json");
+
+  const user = await User.findById(id).select("+password");
+  if (!user || !user.password || user.provider !== "credentials") {
+    // No local password to change against (OAuth-only account) or user
+    // vanished mid-session — 400, not 404/401: this JWT is valid, the
+    // action just isn't available for this account.
+    return c.json({ error: "This account doesn't use a password to sign in." }, 400);
+  }
+
+  const currentOk = await argon2.verify(user.password, currentPassword);
+  if (!currentOk) {
+    // 400, not 401 — see the matching comment in twoFactorController.ts's
+    // disableTwoFactor: apiClient.ts force-signs-out after 2 consecutive
+    // 401s, which a mistyped current password here must not trigger.
+    return c.json({ error: "Current password is incorrect." }, 400);
+  }
+
+  user.password = await argon2.hash(newPassword);
+  await user.save();
+
+  return c.json({ success: true });
+};
+
 export const deleteUser = async (c: Context) => {
   const { id, deleteId, userId } = c.req.param();
 

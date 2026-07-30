@@ -10,6 +10,28 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string(),
+  // Present only on the second call of a 2FA login (see authController.ts's
+  // loginUser) — absent/empty on a normal login or the first attempt for a
+  // 2FA-enabled account.
+  twoFactorCode: z.string().optional(),
+});
+
+export const twoFactorVerifySchema = z.object({
+  code: z.string().min(6, "Enter the 6-digit code from your authenticator app"),
+});
+
+export const twoFactorDisableSchema = z.object({
+  password: z.string(),
+  code: z.string().min(6, "Enter a code to confirm"),
+});
+
+export const twoFactorRegenerateBackupCodesSchema = z.object({
+  password: z.string(),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string(),
+  newPassword: z.string().min(6, "Password must be at least 6 characters"),
 });
 
 export const providerLoginSchema = z.object({
@@ -30,3 +52,9 @@ export type RegisterSchema = z.infer<typeof registerSchema>;
 export type LoginSchema = z.infer<typeof loginSchema>;
 export type ProviderLoginSchema = z.infer<typeof providerLoginSchema>;
 export type LinkProviderSchema = z.infer<typeof linkProviderSchema>;
+export type TwoFactorVerifySchema = z.infer<typeof twoFactorVerifySchema>;
+export type TwoFactorDisableSchema = z.infer<typeof twoFactorDisableSchema>;
+export type TwoFactorRegenerateBackupCodesSchema = z.infer<
+  typeof twoFactorRegenerateBackupCodesSchema
+>;
+export type ChangePasswordSchema = z.infer<typeof changePasswordSchema>;

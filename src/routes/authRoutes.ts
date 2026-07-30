@@ -7,12 +7,22 @@ import {
   loginUser,
   linkProvider,
 } from "../controllers/authController.ts";
+import {
+  getTwoFactorStatus,
+  setupTwoFactor,
+  verifyTwoFactorSetup,
+  disableTwoFactor,
+  regenerateBackupCodes,
+} from "../controllers/twoFactorController.ts";
 
 import {
   registerSchema,
   loginSchema,
   providerLoginSchema,
   linkProviderSchema,
+  twoFactorVerifySchema,
+  twoFactorDisableSchema,
+  twoFactorRegenerateBackupCodesSchema,
 } from "../lib/validators.ts";
 
 import { authMiddleware } from "../middleware/authMiddleware.ts";
@@ -44,4 +54,25 @@ authRouter.post(
   authMiddleware,
   zValidator("json", linkProviderSchema),
   linkProvider,
+);
+
+authRouter.get("/2fa/status", authMiddleware, getTwoFactorStatus);
+authRouter.post("/2fa/setup", authMiddleware, setupTwoFactor);
+authRouter.post(
+  "/2fa/verify-setup",
+  authMiddleware,
+  zValidator("json", twoFactorVerifySchema),
+  verifyTwoFactorSetup,
+);
+authRouter.post(
+  "/2fa/disable",
+  authMiddleware,
+  zValidator("json", twoFactorDisableSchema),
+  disableTwoFactor,
+);
+authRouter.post(
+  "/2fa/backup-codes/regenerate",
+  authMiddleware,
+  zValidator("json", twoFactorRegenerateBackupCodesSchema),
+  regenerateBackupCodes,
 );

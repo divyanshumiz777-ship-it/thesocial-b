@@ -1,8 +1,11 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
 import {
   getAllUsers,
   getUser,
   editUser,
+  changePassword,
+  getAccountInfo,
   deleteUser,
   joinServer,
   leaveServer,
@@ -23,6 +26,7 @@ import {
   clearCustomStatus,
 } from "../controllers/featureController.ts";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
+import { changePasswordSchema } from "../lib/validators.ts";
 
 export const userRouter = new Hono();
 
@@ -37,6 +41,13 @@ userRouter.get("/user-detail/:id", getUser);
 userRouter.get("/user-detail/:id/communities", authMiddleware, getUserCommunities);
 userRouter.put("/user-detail/:id", authMiddleware, editUser);
 userRouter.put("/profile/:id", authMiddleware, updateProfile);
+userRouter.get("/account-info", authMiddleware, getAccountInfo);
+userRouter.put(
+  "/change-password",
+  authMiddleware,
+  zValidator("json", changePasswordSchema),
+  changePassword,
+);
 userRouter.delete("/user-detail/:id", authMiddleware, deleteUser);
 userRouter.post("/join-server/:id", authMiddleware, joinServer);
 userRouter.post("/leave-server/:id", authMiddleware, leaveServer);
