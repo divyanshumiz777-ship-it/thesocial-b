@@ -49,12 +49,18 @@ const CHAT_URL = aiServiceConfig.chatUrl;
  * while the instance is spun down) — all 3 attempts failed within the ~30s
  * window while the instance was still booting, matching this module's own
  * documented "~20-40s typical, up to ~100s observed" boot range. RETRIES=3
- * extends the fast-502 survival window to ~60s (10s + 20s + 30s), covering
- * the typical case with real margin without stretching a synchronous
- * request out to the full ~100s worst case.
+ * extended the fast-502 survival window to ~60s (10s + 20s + 30s), which
+ * still wasn't enough for a real request observed to 502 out at that ceiling
+ * while the instance was still booting past its typical range. RETRIES=4
+ * extends the window to ~100s (10s + 20s + 30s + 40s), matching the full
+ * documented worst-case boot time instead of only the typical case — the
+ * retried attempts also aren't wasted work even in the HANGING failure mode:
+ * Render's boot is a server-side process that keeps progressing regardless
+ * of whether an earlier attempt gave up waiting, so a later attempt reaches
+ * an instance further along in its own boot, not a fresh cold start.
  */
 const REQUEST_TIMEOUT_MS = 60_000;
-const RETRIES = 3;
+const RETRIES = 4;
 const RETRY_DELAY_MS = 10_000;
 
 // ── Response type definitions ─────────────────────────────────────────────────
