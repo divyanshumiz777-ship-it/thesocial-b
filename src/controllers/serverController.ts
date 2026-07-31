@@ -544,6 +544,7 @@ export const deleteServer = async (
 
     await Channel.deleteMany({ server: serverId }, { session });
     await Category.deleteMany({ server: serverId }, { session });
+    await ServerMember.deleteMany({ server: serverId }, { session });
 
     await User.updateMany(
       { servers: serverId },

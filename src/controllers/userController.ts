@@ -80,29 +80,31 @@ export const updateUserSettings = async (c: Context) => {
           field === "notifications" &&
           typeof body[field] === "object"
         ) {
+          // Dotted per-field paths, NOT `settings.notifications` as a whole
+          // object — a $set on the whole embedded object REPLACES it, so a
+          // request that only ever sends the one field the user just toggled
+          // (by design — see accessibility below) silently wiped every
+          // sibling notification field on every save.
           const notif = body[field] || {};
-          const nUpdate: any = {};
-          if (typeof notif.email === "boolean") nUpdate.email = notif.email;
-          if (typeof notif.push === "boolean") nUpdate.push = notif.push;
+          if (typeof notif.email === "boolean")
+            update["settings.notifications.email"] = notif.email;
+          if (typeof notif.push === "boolean")
+            update["settings.notifications.push"] = notif.push;
           if (["all", "mentions", "none"].includes(notif.level))
-            nUpdate.level = notif.level;
-          update["settings.notifications"] = {
-            ...(update["settings.notifications"] || {}),
-            ...nUpdate,
-          };
+            update["settings.notifications.level"] = notif.level;
         } else if (field === "accessibility" && typeof body[field] === "object") {
+          // Same fix as notifications above: dotted per-field paths so
+          // toggling one accessibility setting (fontScale/highContrast/
+          // motionPreference) can never reset the other two — this was the
+          // exact bug reported ("only able to update one setting at a time,
+          // the rest get reset").
           const a11y = body[field] || {};
-          const aUpdate: any = {};
           if (["sm", "md", "lg", "xl"].includes(a11y.fontScale))
-            aUpdate.fontScale = a11y.fontScale;
+            update["settings.accessibility.fontScale"] = a11y.fontScale;
           if (typeof a11y.highContrast === "boolean")
-            aUpdate.highContrast = a11y.highContrast;
+            update["settings.accessibility.highContrast"] = a11y.highContrast;
           if (["system", "reduce", "no-preference"].includes(a11y.motionPreference))
-            aUpdate.motionPreference = a11y.motionPreference;
-          update["settings.accessibility"] = {
-            ...(update["settings.accessibility"] || {}),
-            ...aUpdate,
-          };
+            update["settings.accessibility.motionPreference"] = a11y.motionPreference;
         } else {
           update[`settings.${field}`] = body[field];
         }
