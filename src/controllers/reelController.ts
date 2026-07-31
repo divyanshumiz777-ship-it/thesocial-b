@@ -21,6 +21,7 @@ import { canViewRelationships } from "./followController.ts";
 import {
   forwardGenerateReelCaptions,
   forwardDeleteContent,
+  forwardIngestDocument,
   isChatServiceEnabled,
 } from "../lib/chatServiceClient.ts";
 import logger from "../lib/logger.ts";
@@ -378,6 +379,15 @@ export const createReel = async (c: Context) => {
     await reel.populate("creator_id", "name profilePic");
 
     void generateReelCaptionsAsync(reel._id.toString(), videoUrl);
+
+    // Index the reel so it is findable by caption/tags right away (mirrors the
+    // forwardDeleteContent call in the soft-delete path below). The chunker
+    // enforces its own rule that only public, non-deleted reels are indexed,
+    // so a private draft correctly produces no chunks rather than needing a
+    // condition here.
+    if (isChatServiceEnabled()) {
+      void forwardIngestDocument("reel", reel._id.toString());
+    }
 
     // Only worth telling followers about public reels — a private draft
     // publishing shouldn't ping everyone who follows this creator.

@@ -9,7 +9,11 @@ import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.ts";
 import { Server } from "socket.io";
 import ServerMember from "../models/ServerMember.ts";
-import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
+import {
+  forwardDeleteContent,
+  forwardIngestDocument,
+  isChatServiceEnabled,
+} from "../lib/chatServiceClient.ts";
 import { invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
 import { fireWebhooksForEvent } from "../lib/webhookEvents.ts";
 
@@ -83,6 +87,13 @@ export const createChannel = async (c: Context) => {
     // was reported as. Wildcards across every viewer's cached key for this
     // server (see CacheInvalidator.invalidateServer), not just the creator's.
     await invalidateAfterServerUpdate(serverId);
+
+    // Index the new channel so it is searchable immediately (mirrors the
+    // forwardDeleteContent call in deleteChannel). Fire-and-forget: the save
+    // has already committed and indexing must never fail the create.
+    if (isChatServiceEnabled()) {
+      void forwardIngestDocument("channel", channel._id.toString());
+    }
 
     try {
       const io = (c as any).get("io") as Server | undefined;

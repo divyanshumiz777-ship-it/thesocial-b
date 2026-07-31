@@ -11,7 +11,11 @@ import Notification from "../models/Notification.ts";
 import User from "../models/User.ts";
 import VoiceSession from "../models/VoiceSession.ts";
 import VoiceSessionTranscript from "../models/VoiceSessionTranscript.ts";
-import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
+import {
+  forwardDeleteContent,
+  forwardIngestDocument,
+  isChatServiceEnabled,
+} from "../lib/chatServiceClient.ts";
 import { fireWebhooksForEvent } from "../lib/webhookEvents.ts";
 import { Server } from "socket.io";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
@@ -273,6 +277,19 @@ export const createServer = async (
 
     await session.commitTransaction();
     committed = true;
+
+    // Fire-and-forget index of the new server + its three default channels, so
+    // the community is discoverable through search and the assistant straight
+    // away. Previously nothing ever triggered an ingest, so a brand-new
+    // community stayed invisible to both indefinitely. Mirrors the
+    // forwardDeleteContent call in deleteServer — post-commit, never awaited,
+    // and a failure only costs freshness.
+    if (isChatServiceEnabled()) {
+      void forwardIngestDocument("server", newServer._id.toString());
+      for (const ch of [notesChannel, socialChannel, doubtsChannel]) {
+        void forwardIngestDocument("channel", ch._id.toString());
+      }
+    }
 
     // Populate AFTER commit. A read issued inside the transaction inherits the
     // connection's primaryPreferred read preference, which MongoDB rejects

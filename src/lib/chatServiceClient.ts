@@ -236,6 +236,42 @@ export async function forwardDeleteContent(
   return result.ok;
 }
 
+/**
+ * Index one just-written document into the semantic store — the mirror image
+ * of forwardDeleteContent above.
+ *
+ * Why this exists: the chat-service's full-ingest endpoint had no caller and
+ * nothing scheduled it, so newly created communities, channels, threads,
+ * reels and profiles were never searchable. The assistant's RAG path returned
+ * nothing and answered real questions with "I couldn't find any matching data
+ * on TheSocial."
+ *
+ * Call it fire-and-forget AFTER the Mongo write commits — exactly how
+ * forwardDeleteContent is already called. Indexing must never fail a user's
+ * write; the cost of a failure here is staleness in search, nothing more.
+ *
+ * `message` is deliberately not a supported source type: chat is high-volume
+ * and embedding on the send path would be a hot-path cost. Messages remain on
+ * the batch pass until that is designed with debouncing.
+ */
+export async function forwardIngestDocument(
+  sourceType: "server" | "channel" | "thread" | "reel" | "user",
+  id: string,
+): Promise<boolean> {
+  const result = await callInternalService<{ status: string }>(
+    CHAT_URL,
+    "/internal/v1/ingest/document",
+    {
+      method: "POST",
+      body: { source_type: sourceType, id },
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      retries: RETRIES,
+      retryDelayMs: RETRY_DELAY_MS,
+    }
+  );
+  return result.ok;
+}
+
 // Live captions get a chunk roughly every few seconds for the length of a
 // call — this is a continuous, LOSSY stream (missing one chunk just means
 // one ~4s window of speech never got captioned, not a broken call), so it
