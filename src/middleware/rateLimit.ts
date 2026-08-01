@@ -1,6 +1,35 @@
 import { Context, Next } from "hono";
 import redis from "../lib/redis.ts";
 
+// "Fail open on error" (below) only protects requests from a Redis call
+// that actually REJECTS. ioredis's default enableOfflineQueue queues
+// commands and keeps retrying while disconnected rather than rejecting
+// immediately — so a genuinely unreachable Redis (e.g. REDIS_URL pointing
+// at a host the server can't route to) doesn't error, it just never
+// settles. That took down every route in production: each request sat
+// inside this middleware, awaiting a Redis call that would never resolve
+// or reject, until the client itself gave up (visible as HTTP 499s, 44s to
+// 5+ minutes each). A race against a short timeout is what actually
+// enforces "never block the request", independent of whether Redis fails
+// fast, hangs, or is simply slow.
+const REDIS_TIMEOUT_MS = 300;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("redis timeout")), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 // Lua sliding-window script:
 // KEYS[1] = sorted-set key
 // ARGV[1] = current timestamp (ms)
@@ -56,20 +85,24 @@ export const rateLimit = async (c: Context, next: Next) => {
   const key = `rl:${ip}:${path.split("/").slice(0, 4).join("/")}`;
 
   try {
-    const count = (await redis.eval(
-      SLIDING_WINDOW_SCRIPT,
-      1,
-      key,
-      now.toString(),
-      window.toString(),
-      max.toString()
+    const count = (await withTimeout(
+      redis.eval(
+        SLIDING_WINDOW_SCRIPT,
+        1,
+        key,
+        now.toString(),
+        window.toString(),
+        max.toString()
+      ),
+      REDIS_TIMEOUT_MS
     )) as number;
 
     if (count > max) {
       return c.json({ error: "Rate limit exceeded. Try again later." }, 429);
     }
   } catch {
-    // Fail-open: Redis error should not block requests
+    // Fail-open: a Redis error OR a timeout (see withTimeout above) should
+    // never block requests.
   }
 
   await next();

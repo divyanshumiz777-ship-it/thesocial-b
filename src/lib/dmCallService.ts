@@ -204,6 +204,11 @@ export async function inviteCall(
       return;
     }
 
+    // Forced to the primary — the connection's default readPreference is
+    // "primaryPreferred" (config/db.ts), which lets this land on a secondary
+    // that hasn't yet replicated a just-written status: "ended" from the
+    // other party's hangup moments earlier. That stale read was surfacing as
+    // "you're on another call" immediately after a call had genuinely ended.
     const busy = await DMCall.exists({
       status: { $in: ["ringing", "accepted"] },
       $or: [
@@ -212,7 +217,7 @@ export async function inviteCall(
         { caller: calleeId },
         { callee: calleeId },
       ],
-    });
+    }).read("primary");
     if (busy) {
       socket.emit("call:error", { reason: "busy" });
       return;

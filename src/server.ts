@@ -501,39 +501,54 @@ async function startServer() {
       });
     };
 
-    const markOffline = (userId: string) => {
+    const finalizeOffline = async (userId: string) => {
+      onlineUsers.delete(userId);
+      const lastSeen = new Date();
+      io.emit("presence:update", {
+        userId,
+        online: false,
+        ts: lastSeen.getTime(),
+        lastSeen: lastSeen.toISOString(),
+      });
+      try {
+        // lastDisconnectedAt is distinct from lastSeen: lastSeen is also
+        // bumped by a 15-minute heartbeat while a user stays actively
+        // online (AuthProvider.tsx's updateLastSeen), so it can't answer
+        // "how long has this user genuinely been away" — it's only ever
+        // "recent" for an active session. This field only ever changes
+        // here, at a real last-socket-disconnect, making it the clean
+        // away-duration signal the Catch Me Up digest's eligibility check
+        // needs.
+        await User.findByIdAndUpdate(userId, { lastSeen, lastDisconnectedAt: lastSeen });
+      } catch (err) {
+        console.error("Failed to persist lastSeen on offline:", err);
+      }
+    };
+
+    // `immediate` skips the grace period entirely — used for an explicit
+    // client-signaled logout, where there's no ambiguity to wait out (unlike
+    // a bare socket disconnect, which could just as easily be a refresh or a
+    // brief network drop). Without this, a user logging out and straight
+    // into a different account would still show green ("online") to
+    // everyone else for the full OFFLINE_GRACE_MS.
+    const markOffline = (userId: string, opts: { immediate?: boolean } = {}) => {
       const entry = onlineUsers.get(userId);
       if (!entry) return;
       entry.count = Math.max(0, entry.count - 1);
       if (entry.count > 0) return;
 
+      if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
+
+      if (opts.immediate) {
+        entry.offlineTimer = null;
+        void finalizeOffline(userId);
+        return;
+      }
+
       // Last known socket for this user just disconnected. Don't broadcast
       // offline yet — give them OFFLINE_GRACE_MS to reconnect (refresh,
       // brief network drop) before treating this as a genuine transition.
-      if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
-      entry.offlineTimer = setTimeout(async () => {
-        onlineUsers.delete(userId);
-        const lastSeen = new Date();
-        io.emit("presence:update", {
-          userId,
-          online: false,
-          ts: lastSeen.getTime(),
-          lastSeen: lastSeen.toISOString(),
-        });
-        try {
-          // lastDisconnectedAt is distinct from lastSeen: lastSeen is also
-          // bumped by a 15-minute heartbeat while a user stays actively
-          // online (AuthProvider.tsx's updateLastSeen), so it can't answer
-          // "how long has this user genuinely been away" — it's only ever
-          // "recent" for an active session. This field only ever changes
-          // here, at a real last-socket-disconnect, making it the clean
-          // away-duration signal the Catch Me Up digest's eligibility check
-          // needs.
-          await User.findByIdAndUpdate(userId, { lastSeen, lastDisconnectedAt: lastSeen });
-        } catch (err) {
-          console.error("Failed to persist lastSeen on offline:", err);
-        }
-      }, OFFLINE_GRACE_MS);
+      entry.offlineTimer = setTimeout(() => finalizeOffline(userId), OFFLINE_GRACE_MS);
     };
 
     // ── Admin dashboard live metrics ─────────────────────────────────────────
@@ -1251,6 +1266,17 @@ async function startServer() {
       });
       socket.on("admin:unsubscribe-live-stats", () => {
         socket.leave("admin-live");
+      });
+
+      // Explicit "I'm intentionally leaving" signal, emitted by the client
+      // right before next-auth's signOut() tears the session down — lets
+      // presence skip the grace period it can't otherwise distinguish an
+      // intentional logout from a refresh/blip. The subsequent transport
+      // "disconnect" event still fires as usual once the socket actually
+      // closes; markOffline is a no-op by then since this already removed
+      // the user's entry (or decremented it, for a multi-tab session).
+      socket.on("user:logout", () => {
+        if (connectedUserId) markOffline(connectedUserId, { immediate: true });
       });
 
       // ── Disconnect ──────────────────────────────────────────────────────────
