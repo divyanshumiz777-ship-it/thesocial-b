@@ -682,9 +682,14 @@ export const addComment = async (c: Context) => {
       { new: true }
     ).select("commentCount");
 
+    // Other viewers' open comment panels only had the count-only event to go
+    // on (no comment data was ever broadcast), so a new comment never showed
+    // up live in anyone else's list — the badge count would tick up while
+    // the list underneath it silently stayed stale until a manual reopen.
     broadcastReel(reelId, "reel:comment-updated", {
       reelId,
       commentCount: updatedReel?.commentCount ?? 0,
+      comment: { ...comment.toObject(), isLiked: false, isOwn: false },
     });
 
     return c.json({
@@ -717,6 +722,7 @@ export const deleteComment = async (c: Context) => {
     broadcastReel(comment.reel_id.toString(), "reel:comment-updated", {
       reelId: comment.reel_id.toString(),
       commentCount: Math.max(0, updatedReel?.commentCount ?? 0),
+      commentId: comment._id.toString(),
     });
 
     return c.json({ message: "Comment deleted" }, 200);
