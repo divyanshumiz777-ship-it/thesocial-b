@@ -1,4 +1,5 @@
 import "dotenv/config";
+import mongoose from "mongoose";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { Server as SocketIOServer } from "socket.io";
@@ -337,6 +338,14 @@ async function startServer() {
     };
 
     const endVoiceSessionIfEmpty = async (channelId: string) => {
+      // Not every joined room is a Channel — "global" (useProfileUpdates.ts's
+      // profile-update broadcast room) and others aren't ObjectIds at all.
+      // The comment at this function's call site assumed Mongoose would
+      // just match nothing for a non-voice room, but a non-ObjectId-shaped
+      // string fails to CAST before the query ever runs, throwing instead
+      // of no-opping — this guard restores the intended "no-op for
+      // anything that isn't a real channel" behavior.
+      if (!mongoose.Types.ObjectId.isValid(channelId)) return;
       try {
         const roomSize = io.sockets.adapter.rooms.get(channelId)?.size ?? 0;
         if (roomSize > 0) return;
