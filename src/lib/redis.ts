@@ -1,7 +1,8 @@
 import Redis from "ioredis";
 
 const redisUrl =
-  process.env.REDIS_URL || "redis://red-d7v2vglb910c73akocvg:6379";
+  process.env.REDIS_URL ||
+  "rediss://red-d7v2vglb910c73akocvg:0HKozmXikWcWRq3sugX4ovcVAVp05qXr@oregon-keyvalue.render.com:6379";
 
 const redis = new Redis(redisUrl, {
   maxRetriesPerRequest: 3,
