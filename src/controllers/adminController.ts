@@ -12,6 +12,7 @@ import AuditLog from "../models/AuditLog.ts";
 import Appeal from "../models/Appeal.ts";
 import { applyBan, applyMute } from "../lib/moderationActions.ts";
 import { createNotification, sendNotificationViaSocket } from "./notificationController.ts";
+import { invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
 
 const REPORT_MUTE_DURATION_MS = 24 * 60 * 60 * 1000; // 24h — a fixed, conservative default for a report-driven mute; server moderators can still apply a custom duration through the existing per-server mute route.
 
@@ -292,6 +293,7 @@ export const resolveReport = async (c: Context) => {
       report.status = "dismissed";
       report.resolution = { action: "dismiss", resolvedBy: admin.id, resolvedAt: new Date() };
       await report.save();
+      io.to("admin-live").emit("admin:report-resolved", { reportId, action: "dismiss" });
       return c.json({ message: "Report dismissed" });
     }
 
@@ -299,9 +301,16 @@ export const resolveReport = async (c: Context) => {
       return c.json({ error: "serverId is required for ban/mute" }, 400);
     }
     const reportedUserId = report.reportedUser.toString();
-    const isMember = await ServerMember.exists({ server: serverId, user: reportedUserId });
+    const [isMember, server] = await Promise.all([
+      ServerMember.exists({ server: serverId, user: reportedUserId }),
+      DiscordServer.findById(serverId).select("owner name").lean(),
+    ]);
     if (!isMember) {
       return c.json({ error: "Reported user is not a member of that server" }, 400);
+    }
+    if (!server) return c.json({ error: "Server not found" }, 404);
+    if (server.owner.toString() === reportedUserId) {
+      return c.json({ error: "The server owner can't be banned or muted." }, 403);
     }
 
     const reason = `Report resolution (${report.reason}): ${report.details || "no additional details"}`.slice(0, 500);
@@ -330,7 +339,6 @@ export const resolveReport = async (c: Context) => {
     };
     await report.save();
 
-    const server = await DiscordServer.findById(serverId).select("name").lean();
     const notification = await createNotification({
       recipient: reportedUserId,
       type: action === "ban" ? "banned" : "muted",
@@ -343,6 +351,8 @@ export const resolveReport = async (c: Context) => {
       metadata: { serverId, serverName: server?.name, muteExpiresAt: expiresAt },
     });
     if (notification) sendNotificationViaSocket(io, reportedUserId, notification);
+
+    io.to("admin-live").emit("admin:report-resolved", { reportId, action });
 
     return c.json({ message: `Report resolved: ${action}` });
   } catch (error) {
@@ -444,6 +454,7 @@ export const resolveAppeal = async (c: Context) => {
 
     if (resolution === "reversed") {
       const serverId = appeal.server.toString();
+      const userId = appeal.user.toString();
       if (appeal.action === "ban") {
         await DiscordServer.findOneAndUpdate(
           { _id: serverId, "members.user": appeal.user },
@@ -453,6 +464,7 @@ export const resolveAppeal = async (c: Context) => {
           { server: serverId, user: appeal.user },
           { $unset: { banned: "" } },
         );
+        io.to(serverId).emit("memberUnbanned", { userToUnbanId: userId, serverId });
       } else {
         await DiscordServer.findOneAndUpdate(
           { _id: serverId, "members.user": appeal.user },
@@ -462,13 +474,15 @@ export const resolveAppeal = async (c: Context) => {
           { server: serverId, user: appeal.user },
           { $unset: { muted: "" } },
         );
+        io.to(serverId).emit("memberUnmuted", { userToUnmuteId: userId, serverId });
       }
+      await invalidateAfterServerUpdate(serverId);
       await AuditLog.create({
         server: serverId,
         action: appeal.action === "ban" ? "appeal_reversed_ban" : "appeal_reversed_mute",
         performedBy: admin.id,
         targetUser: appeal.user,
-        details: `Appeal ${appealId} upheld — ${appeal.action} reversed`,
+        details: `Appeal ${appealId} reversed — ${appeal.action} lifted`,
       });
     }
 
@@ -489,6 +503,8 @@ export const resolveAppeal = async (c: Context) => {
       metadata: { serverId: appeal.server, resolution },
     });
     if (notification) sendNotificationViaSocket(io, appeal.user.toString(), notification);
+
+    io.to("admin-live").emit("admin:appeal-resolved", { appealId, resolution });
 
     return c.json({ message: `Appeal ${resolution}` });
   } catch (error) {

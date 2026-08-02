@@ -1216,6 +1216,7 @@ export const unBanMember = async (c: Context) => {
   const { serverId } = c.req.param();
   const actorId = c.get("user").id;
   const { userToUnbanId } = await c.req.json();
+  const io: Server = c.get("io");
   if (
     !mongoose.Types.ObjectId.isValid(serverId) ||
     !mongoose.Types.ObjectId.isValid(userToUnbanId)
@@ -1247,6 +1248,7 @@ export const unBanMember = async (c: Context) => {
       { $unset: { banned: "" } }
     );
     await invalidateAfterServerUpdate(serverId);
+    io.to(serverId.toString()).emit("memberUnbanned", { userToUnbanId, serverId });
     return c.json({ message: "User unbanned successfully" }, 200);
   } catch (error) {
     console.error("Error unbanning member:", error);

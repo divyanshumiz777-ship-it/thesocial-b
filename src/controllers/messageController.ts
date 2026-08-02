@@ -4,6 +4,7 @@ import Message from "../models/Message.ts";
 import mongoose from "mongoose";
 import Channel from "../models/Channel.ts";
 import ChannelReadStatus from "../models/ChannelReadStatus.ts";
+import ServerMember from "../models/ServerMember.ts";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { Buffer } from "node:buffer";
 import User from "../models/User.ts";
@@ -101,6 +102,20 @@ export const createMessage = async (c: Context) => {
       !mongoose.Types.ObjectId.isValid(serverId)
     ) {
       return c.json({ error: "Invalid ID format" }, 400);
+    }
+
+    const membership = await ServerMember.findOne(
+      { server: serverId, user: senderId },
+      "banned muted"
+    ).lean();
+    if (membership?.banned?.isBanned) {
+      return c.json({ error: "You are banned from this server" }, 403);
+    }
+    if (
+      membership?.muted?.isMuted &&
+      (!membership.muted.expiresAt || membership.muted.expiresAt > new Date())
+    ) {
+      return c.json({ error: "You are muted in this server" }, 403);
     }
 
     const getFileType = (
