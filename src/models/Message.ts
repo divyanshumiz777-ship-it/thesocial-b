@@ -21,6 +21,15 @@ export interface ICallInfo {
   caller: Types.ObjectId;
 }
 
+// Present only on a system-generated group-membership entry (see
+// groupDmController.ts's createGroupSystemMessage) — rendered as a distinct
+// pill in the group thread, same convention as callInfo above.
+export interface ISystemInfo {
+  type: "member_added" | "member_removed";
+  actor: Types.ObjectId;
+  targets: Types.ObjectId[];
+}
+
 // Denormalized (name copied at forward time) so a "Forwarded from X" label
 // still renders sensibly even if the original sender later changes their
 // name or the original message/conversation becomes inaccessible to the
@@ -70,6 +79,7 @@ export interface IMessage extends Document {
   // instead of a normal bubble. `content` is still set to a plain-text
   // fallback for search/notifications, but callInfo is what the UI checks.
   callInfo?: ICallInfo;
+  systemInfo?: ISystemInfo;
   forwardedFrom?: IForwardedFrom;
 }
 
@@ -106,6 +116,19 @@ const CallInfoSchema = new Schema<ICallInfo>(
     },
     durationSeconds: { type: Number },
     caller: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  },
+  { _id: false }
+);
+
+const SystemInfoSchema = new Schema<ISystemInfo>(
+  {
+    type: {
+      type: String,
+      enum: ["member_added", "member_removed"],
+      required: true,
+    },
+    actor: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    targets: [{ type: Schema.Types.ObjectId, ref: "User" }],
   },
   { _id: false }
 );
@@ -149,6 +172,7 @@ const MessageSchema = new Schema<IMessage>(
     ],
     deliveredTo: [{ type: Schema.Types.ObjectId, ref: "User" }],
     callInfo: { type: CallInfoSchema },
+    systemInfo: { type: SystemInfoSchema },
     forwardedFrom: { type: ForwardedFromSchema },
   },
   { timestamps: true }
@@ -159,8 +183,20 @@ MessageSchema.index({ plainText: "text", content: "text" });
 MessageSchema.index({ conversationId: 1, createdAt: -1 });
 MessageSchema.index({ conversationId: 1, _id: -1 });
 MessageSchema.index({ groupId: 1, createdAt: -1 });
+// getGroupMessages (groupDmController.ts) filters/sorts by {groupId, _id} for
+// cursor pagination, not createdAt — the index above has createdAt as its
+// second key, so it can only serve the groupId equality prefix and still
+// needs an in-memory sort for every "load older" call. This is the exact
+// second index conversationId already has (line above vs. two lines up).
+MessageSchema.index({ groupId: 1, _id: -1 });
 MessageSchema.index({ sender: 1, createdAt: -1 });
 MessageSchema.index({ pinned: 1, channel: 1 });
+// getMessagesByChannelId (messageController.ts) filters ONLY on {channel},
+// sorted by createdAt — the only prior index covering channel is
+// {server, channel, thread, createdAt}, where channel is the SECOND key, so
+// a channel-only query can't use it as an equality-seek prefix. This is the
+// busiest read path in the app; this index lets it seek directly.
+MessageSchema.index({ channel: 1, createdAt: -1 });
 
 const Message = mongoose.model<IMessage>("Message", MessageSchema);
 export default Message;

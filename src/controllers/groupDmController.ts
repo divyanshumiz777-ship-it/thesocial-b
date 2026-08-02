@@ -3,6 +3,7 @@ import { getIoInstance } from "../config/socket.ts";
 import Group from "../models/Group.ts";
 import Conversation from "../models/Conversation.ts";
 import Message from "../models/Message.ts";
+import User from "../models/User.ts";
 import { verify } from "hono/jwt";
 import mongoose from "mongoose";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
@@ -47,6 +48,45 @@ function notifyUsers(userIds: any[], event: string, payload: any): void {
     seen.add(id);
     io.to(id).emit(event, payload);
   }
+}
+
+/**
+ * Permanent record of a membership change, rendered as a pill in the group
+ * thread (same convention as a DM call-log entry — see Message.callInfo).
+ * Reuses the exact same Message + "groupMessage" emit shape a normal group
+ * message uses, so the group chat's existing live-update path renders it
+ * with zero extra wiring — only the render branch needs to check systemInfo.
+ */
+async function createGroupSystemMessage(
+  groupId: string,
+  type: "member_added" | "member_removed",
+  actorId: string,
+  targets: { id: string; name: string }[]
+): Promise<void> {
+  const actor = await User.findById(actorId).select("name");
+  const actorName = actor?.name || "Someone";
+  const targetNames = targets.map((t) => t.name).join(", ");
+  const content =
+    type === "member_added"
+      ? `${actorName} added ${targetNames}`
+      : `${actorName} removed ${targetNames}`;
+
+  const message = new Message({
+    sender: new mongoose.Types.ObjectId(actorId),
+    content,
+    groupId: new mongoose.Types.ObjectId(groupId),
+    systemInfo: {
+      type,
+      actor: new mongoose.Types.ObjectId(actorId),
+      targets: targets.map((t) => new mongoose.Types.ObjectId(t.id)),
+    },
+  });
+  await message.save();
+  await message.populate("sender", "name email profilePic");
+
+  getIoInstance()
+    .to(groupId)
+    .emit("groupMessage", { groupId, message: message.toObject() });
 }
 
 /** Map a file's MIME type to the attachmentsV2 `type` discriminator the UI
@@ -244,6 +284,20 @@ export const addMembers = async (c: Context) => {
       allMembers: group.participants,
     });
 
+    try {
+      const addedUsers = group.participants.filter((p: any) =>
+        newMembers.includes(p._id.toString())
+      );
+      await createGroupSystemMessage(
+        groupId,
+        "member_added",
+        userId,
+        addedUsers.map((u: any) => ({ id: u._id.toString(), name: u.name }))
+      );
+    } catch (err) {
+      console.error("Failed to create group system message:", err);
+    }
+
     return c.json({ success: true, group });
   } catch (error) {
     console.error("Error adding members:", error);
@@ -329,6 +383,18 @@ export const removeMember = async (c: Context) => {
         remainingMembers: group.participants,
       }
     );
+
+    try {
+      // The removed user is no longer in group.participants by this point
+      // (filtered out above, before the populate() call) — fetched
+      // separately since there's nowhere left to read their name from.
+      const removedUser = await User.findById(memberId).select("name");
+      await createGroupSystemMessage(groupId, "member_removed", userId, [
+        { id: memberId, name: removedUser?.name || "A member" },
+      ]);
+    } catch (err) {
+      console.error("Failed to create group system message:", err);
+    }
 
     return c.json({ success: true, group });
   } catch (error) {

@@ -970,6 +970,16 @@ export const editMemberRole = async (c: Context) => {
       );
     }
 
+    await AuditLog.insertMany(
+      users.map((targetUser: string) => ({
+        server: serverId,
+        action: "role_change",
+        performedBy: actor.id,
+        targetUser,
+        details: `${actor.id} set ${targetUser}'s roles to [${roles.join(", ")}]`,
+      }))
+    );
+
     const io = c.get("io") as Server | undefined;
     if (io) {
       io.to(serverId.toString()).emit("server:updated", {
@@ -1039,6 +1049,13 @@ export const addMember = async (c: Context) => {
     });
 
     await invalidateAfterServerUpdate(serverId);
+    await AuditLog.create({
+      server: serverId,
+      action: "add_member",
+      performedBy: actorId,
+      targetUser: newMemberId,
+      details: `User ${newMemberId} added by ${actorId}`,
+    });
     return c.json({ message: "Member added successfully", server }, 200);
   } catch (error) {
     console.error("Error adding member:", error);
@@ -1091,6 +1108,13 @@ export const removeMember = async (c: Context) => {
     });
 
     await invalidateAfterServerUpdate(serverId);
+    await AuditLog.create({
+      server: serverId,
+      action: "remove_member",
+      performedBy: actorId,
+      targetUser: memberToRemoveId,
+      details: `User ${memberToRemoveId} removed by ${actorId}`,
+    });
     return c.json(
       { message: "Member removed successfully", server: updatedServer },
       200

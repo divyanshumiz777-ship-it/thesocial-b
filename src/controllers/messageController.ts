@@ -302,7 +302,13 @@ export const getMessagesByChannelId = async (c: Context) => {
       ? messages.filter((m: any) => !hiddenUserIds.has(m.sender?._id?.toString()))
       : messages;
 
-    return c.json(visible || [], 200);
+    // hasMore is derived from the raw (pre-block-filter) page size, not
+    // visible.length — filtering out a blocked user's messages can shrink a
+    // full page below `limit` for reasons that have nothing to do with
+    // history actually running out, which would otherwise make pagination
+    // stop early for anyone who happens to have blocked/been blocked by a
+    // chatty member of the channel.
+    return c.json({ messages: visible || [], hasMore: messages.length === limit }, 200);
   } catch (error) {
     console.error("Error fetching messages:", error);
     return c.json({ error: "Failed to fetch messages" }, 500);
