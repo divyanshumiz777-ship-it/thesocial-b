@@ -25,7 +25,7 @@ export interface ICallInfo {
 // groupDmController.ts's createGroupSystemMessage) — rendered as a distinct
 // pill in the group thread, same convention as callInfo above.
 export interface ISystemInfo {
-  type: "member_added" | "member_removed";
+  type: "member_added" | "member_removed" | "member_left";
   actor: Types.ObjectId;
   targets: Types.ObjectId[];
 }
@@ -124,7 +124,7 @@ const SystemInfoSchema = new Schema<ISystemInfo>(
   {
     type: {
       type: String,
-      enum: ["member_added", "member_removed"],
+      enum: ["member_added", "member_removed", "member_left"],
       required: true,
     },
     actor: { type: Schema.Types.ObjectId, ref: "User", required: true },

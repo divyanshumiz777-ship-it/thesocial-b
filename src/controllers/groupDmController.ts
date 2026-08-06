@@ -10,6 +10,7 @@ import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { getCloudinaryResourceType } from "../lib/fileUpload.ts";
 import CacheInvalidator from "../lib/cacheInvalidation.ts";
 import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
+import { createNotification, sendNotificationViaSocket } from "./notificationController.ts";
 
 const groupDmController = new Hono();
 
@@ -59,7 +60,7 @@ function notifyUsers(userIds: any[], event: string, payload: any): void {
  */
 async function createGroupSystemMessage(
   groupId: string,
-  type: "member_added" | "member_removed",
+  type: "member_added" | "member_removed" | "member_left",
   actorId: string,
   targets: { id: string; name: string }[]
 ): Promise<void> {
@@ -69,7 +70,9 @@ async function createGroupSystemMessage(
   const content =
     type === "member_added"
       ? `${actorName} added ${targetNames}`
-      : `${actorName} removed ${targetNames}`;
+      : type === "member_removed"
+        ? `${actorName} removed ${targetNames}`
+        : `${actorName} left the group`;
 
   const message = new Message({
     sender: new mongoose.Types.ObjectId(actorId),
@@ -294,8 +297,26 @@ export const addMembers = async (c: Context) => {
         userId,
         addedUsers.map((u: any) => ({ id: u._id.toString(), name: u.name }))
       );
+
+      // The system-message pill above only shows once the new member
+      // actually opens the group — this is what tells them right away, the
+      // same way a server's join-request/invite events already notify.
+      const actor = await User.findById(userId).select("name");
+      const io = getIoInstance();
+      for (const addedUser of addedUsers) {
+        const notification = await createNotification({
+          recipient: addedUser._id.toString(),
+          sender: userId,
+          type: "member_joined",
+          title: "Added to a group",
+          message: `${actor?.name || "Someone"} added you to "${group.name || "a group"}"`,
+          actionUrl: `/community/me?group=${groupId}`,
+          metadata: { groupId },
+        });
+        if (notification) sendNotificationViaSocket(io, addedUser._id.toString(), notification);
+      }
     } catch (err) {
-      console.error("Failed to create group system message:", err);
+      console.error("Failed to create group system message/notification:", err);
     }
 
     return c.json({ success: true, group });
@@ -564,6 +585,15 @@ export const leaveGroup = async (c: Context) => {
       userId,
       remainingCount: group.participants.length,
     });
+
+    try {
+      const leftUser = await User.findById(userId).select("name");
+      await createGroupSystemMessage(groupId, "member_left", userId, [
+        { id: userId, name: leftUser?.name || "A member" },
+      ]);
+    } catch (err) {
+      console.error("Failed to create group system message:", err);
+    }
 
     return c.json({ success: true });
   } catch (error) {

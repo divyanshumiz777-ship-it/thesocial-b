@@ -122,6 +122,36 @@ async function createCallLogMessage(
   }
 }
 
+// Push notifications previously only fired for a call the callee never
+// answered (notifyMissedCall below) — a ringing call only ever reached a
+// backgrounded/closed app via the plain "call:incoming" socket event, which
+// does nothing once the tab isn't running JS. This fires immediately
+// alongside call:incoming so a push reaches the OS notification tray the
+// same moment the in-app ring starts, not just after it's already missed.
+async function notifyIncomingCall(
+  io: Server,
+  callId: string,
+  conversationId: string,
+  callerId: string,
+  calleeId: string,
+  callerName: string,
+  type: "voice" | "video",
+): Promise<void> {
+  try {
+    const notification = await createNotification({
+      recipient: calleeId,
+      sender: callerId,
+      type: "incoming_call",
+      title: `Incoming ${type} call`,
+      message: `${callerName} is calling you`,
+      metadata: { conversationId, callId, callType: type },
+    });
+    sendNotificationViaSocket(io, calleeId, notification);
+  } catch (err) {
+    console.error("notifyIncomingCall error:", err);
+  }
+}
+
 async function notifyMissedCall(
   io: Server,
   callId: string,
@@ -249,6 +279,7 @@ export async function inviteCall(
       caller: { id: callerId, name: caller.name, profilePic: caller.profilePic },
     });
     socket.emit("call:ringing", { callId });
+    void notifyIncomingCall(io, callId, conversationId, callerId, calleeId, caller.name, type);
 
     const timer = setTimeout(() => {
       void (async () => {

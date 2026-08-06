@@ -198,7 +198,8 @@ import {
   createNotification,
   sendNotificationViaSocket,
 } from "./notificationController.ts";
-import { invalidateAfterUserUpdate } from "../lib/cacheInvalidation.ts";
+import { invalidateAfterUserUpdate, invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
+import AuditLog from "../models/AuditLog.ts";
 import { broadcastProfileChange } from "../lib/profileBroadcast.ts";
 import ServerMember from "../models/ServerMember.ts";
 import Follow from "../models/Follow.ts";
@@ -703,6 +704,17 @@ export const leaveServer = async (c: Context) => {
   if (!serverExists) {
     return c.json({ error: "Server not found" }, 404);
   }
+  // The owner previously had no guard here at all: they could "leave" their
+  // own server, removing themselves from members/ServerMember while
+  // `DiscordServer.owner` stayed pointed at them — an orphaned server with
+  // no member who can manage it, matching removeMember's and leaveGroup's
+  // existing owner block (serverController.ts, groupDmController.ts).
+  if (serverExists.owner.toString() === id) {
+    return c.json(
+      { error: "The server owner can't leave. Transfer ownership or delete the server instead." },
+      403
+    );
+  }
 
   try {
     const io: Server = c.get("io");
@@ -719,6 +731,14 @@ export const leaveServer = async (c: Context) => {
       $pull: { members: { user: id } },
     });
     await ServerMember.deleteOne({ server: serverId, user: id });
+    await invalidateAfterServerUpdate(serverId);
+    await AuditLog.create({
+      server: serverId,
+      action: "leave_server",
+      performedBy: id,
+      targetUser: id,
+      details: `User ${id} left the server`,
+    });
     io.to(serverId).emit("userLeft", { userId: id, serverId: serverId });
     return c.json(
       { message: "Left server successfully", user: updatedUser },
