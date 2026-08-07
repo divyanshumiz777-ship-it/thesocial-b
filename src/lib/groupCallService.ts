@@ -101,6 +101,34 @@ async function notifyIncomingGroupCall(
   }
 }
 
+async function joinExistingCall(
+  io: Server,
+  socket: Socket,
+  userId: string,
+  existing: IGroupCall & { save: () => Promise<unknown> },
+): Promise<string> {
+  const groupCallId = existing._id.toString();
+  const alreadyIn = existing.joinedParticipants.some((p) => p.toString() === userId);
+  if (!alreadyIn) {
+    existing.joinedParticipants.push(new mongoose.Types.ObjectId(userId));
+    await existing.save();
+  }
+  socket.join(groupCallId);
+  // Mirrors the community voice-channel webrtc:join broadcast shape exactly
+  // — see this file's header comment for why that shape (not a "tell the
+  // new joiner about everyone" broadcast) is what makes an N-way mesh
+  // actually converge.
+  io.to(groupCallId).emit("webrtc:user-joined", { userId });
+  socket.emit("group-call:joined", {
+    groupCallId,
+    groupId: existing.groupId.toString(),
+    type: existing.type,
+    isNewCall: false,
+    participantIds: existing.joinedParticipants.map((p) => p.toString()),
+  });
+  return groupCallId;
+}
+
 // Returns the groupCallId the socket just joined (server.ts's caller uses
 // this to track it in its own per-connection joinedRooms set, the same way
 // it already does for webrtc:join — see this file's leaveGroupCallOnDisconnect
@@ -140,38 +168,36 @@ export async function startOrJoinGroupCall(
     }
 
     const existing = await GroupCall.findOne({ groupId, status: "active" });
-
     if (existing) {
-      const groupCallId = existing._id.toString();
-      const alreadyIn = existing.joinedParticipants.some((p) => p.toString() === userId);
-      if (!alreadyIn) {
-        existing.joinedParticipants.push(new mongoose.Types.ObjectId(userId));
-        await existing.save();
-      }
-      socket.join(groupCallId);
-      // Mirrors the community voice-channel webrtc:join broadcast shape
-      // exactly — see this file's header comment for why that shape (not a
-      // "tell the new joiner about everyone" broadcast) is what makes an
-      // N-way mesh actually converge.
-      io.to(groupCallId).emit("webrtc:user-joined", { userId });
-      socket.emit("group-call:joined", {
-        groupCallId,
-        groupId,
-        type: existing.type,
-        isNewCall: false,
-        participantIds: existing.joinedParticipants.map((p) => p.toString()),
-      });
-      return groupCallId;
+      return await joinExistingCall(io, socket, userId, existing);
     }
 
-    const call = await GroupCall.create({
-      groupId,
-      initiator: userId,
-      type,
-      status: "active",
-      joinedParticipants: [userId],
-      startedAt: new Date(),
-    });
+    let call;
+    try {
+      call = await GroupCall.create({
+        groupId,
+        initiator: userId,
+        type,
+        status: "active",
+        joinedParticipants: [userId],
+        startedAt: new Date(),
+      });
+    } catch (err: any) {
+      // Two people tapping "start" within the same request window can both
+      // pass the findOne-above check before either has created a document —
+      // the partialFilterExpression unique index on GroupCall (groupId,
+      // status:"active") turns the LOSER's create() into a duplicate-key
+      // error (code 11000) instead of silently allowing two simultaneous
+      // active calls for one group. Recover by joining the winner's call
+      // instead of surfacing an error for what the user experiences as a
+      // completely normal "start a call" click.
+      if (err?.code === 11000) {
+        const winner = await GroupCall.findOne({ groupId, status: "active" });
+        if (winner) return await joinExistingCall(io, socket, userId, winner);
+      }
+      throw err;
+    }
+
     const groupCallId = call._id.toString();
     socket.join(groupCallId);
     socket.emit("group-call:joined", {
@@ -246,10 +272,28 @@ async function removeParticipant(io: Server, groupCallId: string, userId: string
       // ever formally rung-and-declined the way a DM call can be; per-person
       // "you missed this" is already covered by the incoming push above).
       await createGroupCallLogMessage(io, call, "completed", durationSeconds);
-      io.to(call.groupId.toString()).emit("group-call:ended", {
-        groupCallId,
-        groupId: call.groupId.toString(),
-      });
+
+      // Broadcast to BOTH the group room (updates anyone with that chat open
+      // — their "call in progress" banner) AND every participant's personal
+      // room (updates anyone still showing the ring UI who never opened this
+      // group's chat at all, since that's the only place a socket actually
+      // joins the group room — see GroupChatView.tsx's useSocket call. Ringing
+      // (group-call:incoming) already reaches personal rooms; "ended" not
+      // reaching that same audience left a rung-but-not-joined participant's
+      // incoming-call banner stuck forever, and worse, tapping "Join" on it
+      // afterward would start a brand-new call instead of recognizing the old
+      // one was already over.
+      const endedPayload = { groupCallId, groupId: call.groupId.toString() };
+      io.to(call.groupId.toString()).emit("group-call:ended", endedPayload);
+      const group = await Group.findById(call.groupId).select("participants").lean();
+      if (group) {
+        notifyGroupMembers(
+          io,
+          group.participants.map((p: any) => p.toString()),
+          "group-call:ended",
+          endedPayload,
+        );
+      }
     }
   } catch (err) {
     console.error("removeParticipant (group call) error:", err);

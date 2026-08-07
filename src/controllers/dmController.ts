@@ -177,46 +177,57 @@ export const createDm = async (c: Context) => {
         messageId: newMessage._id.toString(),
         lastMessage: populatedMessage,
       });
+    }
 
-      // Every OTHER notification type in this app (calls, mentions, group-
-      // add, moderation) creates a Notification, which is what actually
-      // triggers a browser push (see notificationController.ts's
-      // createNotification -> sendPushToUser) — an ordinary DM never did,
-      // so the socket emits above were the ONLY delivery path: zero
-      // notification reached a backgrounded tab or a closed app, even
-      // though the whole push pipeline (VAPID, service worker, subscription)
-      // was already fully working for everything else. A DM is inherently
-      // addressed directly at the recipient — unlike a channel message,
-      // there's no "not a mention" case — so this only respects "none"
-      // (fully opted out) and this specific conversation being muted, not
-      // the "mentions"-only level (which exists to suppress channel noise,
-      // not 1:1 messages).
-      try {
-        const level = receiver.settings?.notifications?.level || "all";
-        const isMuted = (receiver.settings?.mutedConversations || []).some(
-          (id) => id?.toString() === conversation._id.toString()
-        );
-        if (level !== "none" && !isMuted) {
-          const senderName = sender.name || "Someone";
-          const snippet = content
-            ? String(content).slice(0, 140)
-            : hasAttachments
-              ? "📎 Sent an attachment"
-              : "";
-          const notification = await createNotification({
-            recipient: receiverId,
-            sender: senderId,
-            type: "dm_message",
-            title: senderName,
-            message: snippet,
-            metadata: { conversationId: conversation._id.toString(), messageId: newMessage._id.toString() },
-            actionUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/community/me?conversation=${conversation._id.toString()}`,
-          });
-          if (notification) sendNotificationViaSocket(io, receiverId, notification);
-        }
-      } catch (err) {
-        console.error("Failed to create DM message notification:", err);
+    // Every OTHER notification type in this app (calls, mentions, group-add,
+    // moderation) creates a Notification, which is what actually triggers a
+    // browser push (see notificationController.ts's createNotification ->
+    // sendPushToUser) — an ordinary DM never did, so the socket emits above
+    // were the ONLY delivery path: zero notification reached a backgrounded
+    // tab or a closed app, even though the whole push pipeline (VAPID,
+    // service worker, subscription) was already fully working for
+    // everything else. A DM is inherently addressed directly at the
+    // recipient — unlike a channel message, there's no "not a mention" case
+    // — so this only respects "none" (fully opted out) and this specific
+    // conversation being muted, not the "mentions"-only level (which exists
+    // to suppress channel noise, not 1:1 messages).
+    //
+    // Deliberately OUTSIDE the `if (io)` block above: app.ts's io-attaching
+    // middleware swallows a "Socket.IO instance not initialized yet" error
+    // into a silent `c.set("io", undefined)` during the brief startup
+    // window (and unconditionally in test runs) — nesting push delivery
+    // inside that same `if (io)` meant a request landing in that window
+    // still saved the message and returned 201, but silently skipped the
+    // recipient's notification entirely, reproducing the exact "invisible
+    // from the sender's point of view" failure this was meant to fix.
+    // Notification creation (and the push it triggers) has no real
+    // dependency on the realtime layer being up; only the optional
+    // in-app-toast socket emit does.
+    try {
+      const level = receiver.settings?.notifications?.level || "all";
+      const isMuted = (receiver.settings?.mutedConversations || []).some(
+        (id) => id?.toString() === conversation._id.toString()
+      );
+      if (level !== "none" && !isMuted) {
+        const senderName = sender.name || "Someone";
+        const snippet = content
+          ? String(content).slice(0, 140)
+          : hasAttachments
+            ? "📎 Sent an attachment"
+            : "";
+        const notification = await createNotification({
+          recipient: receiverId,
+          sender: senderId,
+          type: "dm_message",
+          title: senderName,
+          message: snippet,
+          metadata: { conversationId: conversation._id.toString(), messageId: newMessage._id.toString() },
+          actionUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/community/me?conversation=${conversation._id.toString()}`,
+        });
+        if (notification && io) sendNotificationViaSocket(io, receiverId, notification);
       }
+    } catch (err) {
+      console.error("Failed to create DM message notification:", err);
     }
 
     await invalidateAfterDM(conversation._id.toString(), senderId);

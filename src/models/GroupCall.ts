@@ -34,5 +34,19 @@ const GroupCallSchema = new Schema<IGroupCall>(
 // group-call:start hits it before deciding start-vs-join.
 GroupCallSchema.index({ groupId: 1, status: 1 });
 
+// Enforces "at most one active call per group" at the database level — the
+// findOne-then-create in groupCallService.ts's startOrJoinGroupCall has a
+// check-then-act race (two people tapping "start" within the same request
+// window both see no active call and both create one). A plain index can't
+// express "unique only while active" since status legitimately repeats
+// across a group's call history; a partial unique index scoped to
+// status:"active" does. The second concurrent create() now throws a
+// duplicate-key error (code 11000) instead of silently succeeding, which
+// startOrJoinGroupCall catches and retries as a join against the winner.
+GroupCallSchema.index(
+  { groupId: 1 },
+  { unique: true, partialFilterExpression: { status: "active" } },
+);
+
 const GroupCall = mongoose.model<IGroupCall>("GroupCall", GroupCallSchema);
 export default GroupCall;
