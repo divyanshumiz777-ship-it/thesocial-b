@@ -18,6 +18,9 @@ export interface INotification extends Document {
     | "voice_session_summary"
     | "missed_call"
     | "incoming_call"
+    | "incoming_group_call"
+    | "dm_message"
+    | "group_message"
     | "banned"
     | "muted"
     | "appeal_resolved"
@@ -72,6 +75,9 @@ const NotificationSchema = new Schema<INotification>(
         "voice_session_summary",
         "missed_call",
         "incoming_call",
+        "incoming_group_call",
+        "dm_message",
+        "group_message",
         "banned",
         "muted",
         "appeal_resolved",

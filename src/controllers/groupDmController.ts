@@ -11,6 +11,7 @@ import { getCloudinaryResourceType } from "../lib/fileUpload.ts";
 import CacheInvalidator from "../lib/cacheInvalidation.ts";
 import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
 import { createNotification, sendNotificationViaSocket } from "./notificationController.ts";
+import { getActiveGroupCall } from "../lib/groupCallService.ts";
 
 const groupDmController = new Hono();
 
@@ -1022,6 +1023,42 @@ export const sendMessage = async (c: Context) => {
       message: message.toObject(),
     });
 
+    // Same gap as 1:1 DMs (see dmController.ts's createDm) — group messages
+    // only ever reached an open, connected socket; a backgrounded/closed app
+    // got nothing. No per-group mute setting exists (only mutedServers/
+    // mutedConversations), so this only respects the recipient's global
+    // notifications.level opt-out.
+    try {
+      const senderName = (message.sender as any)?.name || "Someone";
+      const snippet = content
+        ? String(content).slice(0, 140)
+        : attachmentsV2.length > 0
+          ? "📎 Sent an attachment"
+          : "";
+      const recipientIds = group.participants
+        .map((p: any) => p.toString())
+        .filter((id: string) => id !== userId);
+      const recipients = await User.find({ _id: { $in: recipientIds } }).select(
+        "settings.notifications.level"
+      );
+      for (const recipient of recipients) {
+        const level = (recipient as any).settings?.notifications?.level || "all";
+        if (level === "none") continue;
+        const notification = await createNotification({
+          recipient: recipient._id.toString(),
+          sender: userId,
+          type: "group_message",
+          title: `${senderName} in ${group.name}`,
+          message: snippet,
+          metadata: { groupId, messageId: message._id.toString() },
+          actionUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/community/me?group=${groupId}`,
+        });
+        if (notification) sendNotificationViaSocket(io, recipient._id.toString(), notification);
+      }
+    } catch (err) {
+      console.error("Failed to create group message notifications:", err);
+    }
+
     await CacheInvalidator.invalidateGroup(groupId);
     return c.json({ success: true, message: message.toObject() }, 201);
   } catch (error) {
@@ -1344,6 +1381,41 @@ export const getGroupMessages = async (c: Context) => {
   }
 };
 
+// Lets a group chat, on open/reload, show "call in progress — tap to join"
+// even if the viewer wasn't around for the transient group-call:incoming
+// ring (app closed, tab not open) — there's no persistent equivalent of that
+// socket event otherwise.
+export const getGroupCallStatus = async (c: Context) => {
+  try {
+    const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    if (!token) return c.json({ error: "Unauthorized" }, 401);
+
+    const decoded = await verifyJWT(token);
+    if (!decoded) return c.json({ error: "Invalid token" }, 401);
+
+    const userId = getUserIdFromJWT(decoded);
+    if (!userId) return c.json({ error: "Invalid token payload" }, 401);
+
+    const { groupId } = c.req.param();
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return c.json({ error: "Invalid group ID" }, 400);
+    }
+
+    const group = await Group.findById(groupId).select("participants").lean();
+    if (!group) return c.json({ error: "Group not found" }, 404);
+    const isMember = (group.participants || []).some((p: any) => p.toString() === userId);
+    if (!isMember) {
+      return c.json({ error: "You are not a member of this group" }, 403);
+    }
+
+    const call = await getActiveGroupCall(groupId);
+    return c.json({ call });
+  } catch (error) {
+    console.error("Error fetching group call status:", error);
+    return c.json({ error: "Failed to fetch group call status" }, 500);
+  }
+};
+
 groupDmController.get("/my-groups", getUserGroups);
 groupDmController.get("/:groupId", getGroup);
 groupDmController.post("/create", createGroup);
@@ -1355,6 +1427,7 @@ groupDmController.post("/:groupId/leave", leaveGroup);
 groupDmController.put("/:groupId/update", updateGroup);
 groupDmController.delete("/:groupId/delete", deleteGroup);
 groupDmController.get("/:groupId/members", getGroupMembers);
+groupDmController.get("/:groupId/call", getGroupCallStatus);
 groupDmController.get("/:groupId/messages", getGroupMessages);
 groupDmController.put("/:groupId/mark-delivered", markGroupDelivered);
 groupDmController.post("/:groupId/messages", sendMessage);

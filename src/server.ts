@@ -36,6 +36,11 @@ import {
   endCall as endDMCall,
   mediaReady as mediaReadyDMCall,
 } from "./lib/dmCallService.ts";
+import {
+  startOrJoinGroupCall,
+  leaveGroupCall as leaveGroupCallService,
+  leaveGroupCallOnDisconnect,
+} from "./lib/groupCallService.ts";
 import { isAdminEmail } from "./lib/admin.ts";
 
 /**
@@ -1263,6 +1268,23 @@ async function startServer() {
         void mediaReadyDMCall(io, connectedUserId, data);
       });
 
+      // ── Group DM voice/video calling ─────────────────────────────────────────
+      // No accept/reject state machine like 1:1 calls — starting or joining
+      // is the same action (see groupCallService.ts's header comment); the
+      // returned groupCallId is tracked in joinedRooms exactly like
+      // webrtc:join above, so an abrupt disconnect (tab close, crash) still
+      // gets swept by the disconnect handler below instead of leaving a
+      // ghost participant in the call forever.
+      socket.on("group-call:start", (data) => {
+        void startOrJoinGroupCall(io, socket, connectedUserId, data).then((groupCallId) => {
+          if (groupCallId) joinedRooms.add(groupCallId);
+        });
+      });
+      socket.on("group-call:leave", (data: { groupCallId?: string }) => {
+        if (data?.groupCallId) joinedRooms.delete(data.groupCallId);
+        void leaveGroupCallService(io, socket, connectedUserId, data);
+      });
+
       // ── Admin dashboard live metrics ─────────────────────────────────────────
       // A dedicated room rather than a per-request query — liveStatsInterval
       // below only computes/emits anything while this room is non-empty, so
@@ -1317,6 +1339,10 @@ async function startServer() {
               // webrtc:leave. No-ops for every non-voice room — it's just a
               // findOneAndUpdate that matches nothing.
               void endVoiceSessionIfEmpty(roomId);
+              // Same best-effort contract, for a group call this socket was
+              // in — no-ops for every roomId that isn't a currently-active
+              // GroupCall's id.
+              void leaveGroupCallOnDisconnect(io, connectedUserId, roomId);
             }
           }
         } catch (err) {
