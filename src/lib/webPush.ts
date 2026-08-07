@@ -42,6 +42,17 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: sub.keys },
           body,
+          // No options object at all previously — push services default to
+          // urgency "normal", which Android/Chrome's FCM backend is allowed
+          // to defer under Doze/battery-saver instead of waking the device
+          // immediately. "high" is the documented signal for "the user is
+          // waiting on this now" (a new message/call, as opposed to e.g. a
+          // digest), matching what every other real chat app requests for
+          // this class of notification. TTL bounds how long the push
+          // service holds it for an offline device — long enough to
+          // reliably survive a brief connectivity gap, short enough that a
+          // days-old "new message" ping never suddenly arrives stale.
+          { urgency: "high", TTL: 60 * 60 * 24 },
         );
       } catch (err: any) {
         // 404/410 = the browser/OS revoked this subscription (uninstalled,
