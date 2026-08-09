@@ -12,6 +12,10 @@ import {
   getProfileVisibility,
 } from "../lib/profilePrivacy.ts";
 import { canViewRelationships } from "./followController.ts";
+import {
+  createNotification,
+  sendNotificationViaSocket,
+} from "./notificationController.ts";
 import { isFriendRequestBlocked } from "../lib/serverPrivacy.ts";
 
 export const sendFriendRequest = async (c: Context) => {
@@ -90,6 +94,25 @@ export const sendFriendRequest = async (c: Context) => {
         friendRequest: existingRequest.toObject(),
       });
 
+      // Same gap DMs already had (see dmController.ts's createDm) — the
+      // socket emit above only reaches an open, connected tab; a
+      // backgrounded/closed app got nothing. This is what actually
+      // triggers a push via notificationController's sendPushToUser.
+      const resentSenderName =
+        (existingRequest.sender as any)?.name || "Someone";
+      const resentNotification = await createNotification({
+        recipient: receiverId,
+        sender: senderId,
+        type: "friend_request",
+        title: "New friend request",
+        message: `${resentSenderName} sent you a friend request`,
+        metadata: { friendRequestId: existingRequest._id.toString() },
+        actionUrl: `/profile/${senderId}`,
+      });
+      if (resentNotification) {
+        sendNotificationViaSocket(io, receiverId, resentNotification);
+      }
+
       return c.json(
         {
           message: "Friend request sent",
@@ -116,6 +139,21 @@ export const sendFriendRequest = async (c: Context) => {
     io.to(receiverId).emit("friend_request_received", {
       friendRequest: friendRequest.toObject(),
     });
+
+    // See the resend branch above — same push-delivery gap DMs already had.
+    const newSenderName = (friendRequest.sender as any)?.name || "Someone";
+    const newNotification = await createNotification({
+      recipient: receiverId,
+      sender: senderId,
+      type: "friend_request",
+      title: "New friend request",
+      message: `${newSenderName} sent you a friend request`,
+      metadata: { friendRequestId: friendRequest._id.toString() },
+      actionUrl: `/profile/${senderId}`,
+    });
+    if (newNotification) {
+      sendNotificationViaSocket(io, receiverId, newNotification);
+    }
 
     return c.json(
       {
@@ -236,6 +274,28 @@ export const acceptFriendRequest = async (c: Context) => {
       friendRequest: friendRequest.toObject(),
       newFriend: receiver,
     });
+
+    // Only the original sender gets notified — the acceptor just performed
+    // the action themselves, so the emit to `userId` above is multi-device
+    // sync only, not something they need pushed to them. Same push-delivery
+    // gap DMs already had (see dmController.ts's createDm).
+    const accepterName = receiver?.name || "Someone";
+    const acceptNotification = await createNotification({
+      recipient: friendRequest.sender.toString(),
+      sender: userId,
+      type: "friend_accepted",
+      title: "Friend request accepted",
+      message: `${accepterName} accepted your friend request`,
+      metadata: { friendRequestId: friendRequest._id.toString() },
+      actionUrl: `/profile/${userId}`,
+    });
+    if (acceptNotification) {
+      sendNotificationViaSocket(
+        io,
+        friendRequest.sender.toString(),
+        acceptNotification
+      );
+    }
 
     return c.json({
       message: "Friend request accepted",

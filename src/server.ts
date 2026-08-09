@@ -244,8 +244,19 @@ async function startServer() {
      * broadcasting them offline. Covers transient network drops, page
      * refreshes, and (now largely eliminated, but kept as defense in depth)
      * a client-side reconnect whose new "connect" hasn't landed yet when the
-     * old socket's "disconnect" is processed. */
-    const OFFLINE_GRACE_MS = 45_000;
+     * old socket's "disconnect" is processed.
+     *
+     * Was 45s (see realtime-architecture-p0 memory) — sized to survive a now
+     * root-cause-fixed bug that reconnected the socket on every session
+     * check. An explicit sign-out (user:logout) and a tab/browser close
+     * (the pagehide → /api/v1/presence/offline → forced disconnect path,
+     * reported as reason "server namespace disconnect") both already skip
+     * this window entirely via markOffline's `immediate` flag — this value
+     * now only matters for a genuine unannounced drop (refresh, brief
+     * network blip, or a hard crash pagehide never got to fire for), so it
+     * no longer needs to be nearly a minute long.
+     */
+    const OFFLINE_GRACE_MS = 8_000;
 
     /** `${roomId}-${userId}` → timeout handle for auto-stop-typing */
     const typingTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1318,7 +1329,18 @@ async function startServer() {
             `Socket ${socket.id} (user ${connectedUserId}) disconnected: ${reason}`,
           );
           if (connectedUserId) {
-            markOffline(connectedUserId);
+            // "server namespace disconnect" is what Socket.IO reports when
+            // OUR OWN server code called socket.disconnect() — specifically
+            // presenceController.markSelfOffline, forced via
+            // io.in(userId).disconnectSockets(). That only happens because
+            // the client already told us (via a pagehide/sendBeacon-style
+            // REST call, the one path that survives an abrupt tab/browser
+            // close) that it's leaving, so — same reasoning as the explicit
+            // user:logout signal above — skip the grace period instead of
+            // treating it as an ambiguous drop.
+            markOffline(connectedUserId, {
+              immediate: reason === "server namespace disconnect",
+            });
 
             // Clear any pending typing timeouts for this user
             for (const [key, handle] of typingTimeouts.entries()) {
