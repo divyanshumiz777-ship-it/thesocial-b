@@ -481,6 +481,7 @@ describe("deleteMessage — Qdrant tombstone forwarding", () => {
     const message: any = {
       _id: MSG_ID,
       sender: { toString: () => ME },
+      createdAt: new Date(),
       save: vi.fn().mockResolvedValue(true),
     };
     (Message.findById as any).mockResolvedValue(message);
@@ -518,6 +519,7 @@ describe("deleteMessage — Qdrant tombstone forwarding", () => {
     const message: any = {
       _id: MSG_ID,
       sender: { toString: () => ME },
+      createdAt: new Date(),
       save: vi.fn().mockResolvedValue(true),
     };
     (Message.findById as any).mockResolvedValue(message);
@@ -530,6 +532,75 @@ describe("deleteMessage — Qdrant tombstone forwarding", () => {
     await deleteMessage(c);
 
     expect(forwardDeleteContent).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteMessage — 24h for-everyone window", () => {
+  const MSG_ID = "507f1f77bcf86cd799439055";
+
+  beforeEach(() => {
+    (isChatServiceEnabled as any).mockReturnValue(true);
+  });
+
+  it("403s a for-everyone delete on a message older than 24h", async () => {
+    const message: any = {
+      _id: MSG_ID,
+      sender: { toString: () => ME },
+      createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+      save: vi.fn().mockResolvedValue(true),
+    };
+    (Message.findById as any).mockResolvedValue(message);
+    (Conversation.findById as any).mockReturnValue(selectResolves({ participants: [ME, FRIEND] }));
+
+    const { c, calls } = mockContext({
+      params: { conversationId: CONV_ID },
+      body: { messageId: MSG_ID, deleteType: "for-everyone" },
+    });
+    await deleteMessage(c);
+
+    expect(calls[0].status).toBe(403);
+    expect(message.save).not.toHaveBeenCalled();
+    expect(forwardDeleteContent).not.toHaveBeenCalled();
+  });
+
+  it("allows a for-everyone delete on a message within 24h", async () => {
+    const message: any = {
+      _id: MSG_ID,
+      sender: { toString: () => ME },
+      createdAt: new Date(Date.now() - 23 * 60 * 60 * 1000),
+      save: vi.fn().mockResolvedValue(true),
+    };
+    (Message.findById as any).mockResolvedValue(message);
+    (Conversation.findById as any).mockReturnValue(selectResolves({ participants: [ME, FRIEND] }));
+
+    const { c, calls } = mockContext({
+      params: { conversationId: CONV_ID },
+      body: { messageId: MSG_ID, deleteType: "for-everyone" },
+    });
+    await deleteMessage(c);
+
+    expect(calls[0].status).toBe(200);
+    expect(message.save).toHaveBeenCalled();
+  });
+
+  it("still allows a for-me delete on a message older than 24h (only for-everyone is windowed)", async () => {
+    const message: any = {
+      _id: MSG_ID,
+      sender: { toString: () => FRIEND },
+      deletedFor: [],
+      createdAt: new Date(Date.now() - 100 * 60 * 60 * 1000),
+      save: vi.fn().mockResolvedValue(true),
+    };
+    (Message.findById as any).mockResolvedValue(message);
+
+    const { c, calls } = mockContext({
+      params: { conversationId: CONV_ID },
+      body: { messageId: MSG_ID, deleteType: "for-me" },
+    });
+    await deleteMessage(c);
+
+    expect(calls[0].status).toBe(200);
+    expect(message.save).toHaveBeenCalled();
   });
 });
 

@@ -25,6 +25,11 @@ import {
 } from "../lib/fileUpload.ts";
 import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
 
+// Only gates "for-everyone" — see deleteMessage below. "for-me" (hiding a
+// message from your own view only) never affects anyone else, so it stays
+// available regardless of age.
+const DELETE_FOR_EVERYONE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export const searchMessages = async (c: Context) => {
   const { channelId } = c.req.param();
   const query = c.req.query("q") || "";
@@ -357,6 +362,16 @@ export const deleteMessage = async (c: Context) => {
     const channelIdString = message.channel?.toString();
     if (!channelIdString) {
       return c.json({ error: "Invalid channel ID" }, 400);
+    }
+
+    if (
+      deleteType === "for-everyone" &&
+      Date.now() - message.createdAt.getTime() > DELETE_FOR_EVERYONE_WINDOW_MS
+    ) {
+      return c.json(
+        { error: "This message is too old to delete for everyone" },
+        403
+      );
     }
 
     if (deleteType === "for-everyone") {

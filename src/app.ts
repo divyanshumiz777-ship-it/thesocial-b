@@ -13,6 +13,7 @@ import { categoryRouter } from "./routes/categoryRoutes.ts";
 import { channelRouter } from "./routes/channelRoutes.ts";
 import { messageRouter } from "./routes/messageRoutes.ts";
 import { dmRouter } from "./routes/dmRoutes.ts";
+import { chatThemeRouter } from "./routes/chatThemeRoutes.ts";
 import { threadRouter } from "./routes/threadRoutes.ts";
 import { notificationRouter } from "./routes/notificationRoutes.ts";
 import { botRouter } from "./routes/botRoutes.ts";
@@ -100,6 +101,8 @@ if (!isTest) {
       "/api/v1/dm/theme/", // must reflect a just-set theme immediately on the
       // next open — invalidated on write too, but this is the same "socket
       // already provides liveness for THIS session" class of route as get-dm
+      "/api/v1/chat-theme/", // generalized dm/group/community version of the
+      // route above — same rationale, same requirement
       "/api/v1/notification", // always needs fresh
       "/api/v1/user/settings", // settings must be current
       "/api/v1/user/account-info", // gates the password-change form's visibility —
@@ -177,6 +180,7 @@ app.route("/api/v1/category", categoryRouter);
 app.route("/api/v1/channel", channelRouter);
 app.route("/api/v1/message", messageRouter);
 app.route("/api/v1/dm", dmRouter);
+app.route("/api/v1/chat-theme", chatThemeRouter);
 app.route("/api/v1/thread", threadRouter);
 app.route("/api/v1/notification", notificationRouter);
 app.route("/api/v1/bot", botRouter);

@@ -18,6 +18,9 @@ const groupDmController = new Hono();
 /** Hard cap on group size — a cheap guard against runaway/abusive add-member calls. */
 const MAX_GROUP_PARTICIPANTS = 100;
 
+// See deleteGroupMessage — only gates a sender deleting their own message.
+const DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Normalize any of: a plain id string, a Mongoose ObjectId, or a populated
  * user object ({ _id, ... }) → its hex id string. Used both to compare
@@ -914,6 +917,7 @@ export const sendMessage = async (c: Context) => {
     const { groupId } = c.req.param();
 
     let content = "";
+    let replyTo: string | null = null;
     // Attachments are stored as attachmentsV2 (the shape the whole app
     // renders — see MessageBubble/RichMessageDisplay and dmController). The
     // group send path previously wrote a single `fileUrl` string, which no
@@ -940,6 +944,7 @@ export const sendMessage = async (c: Context) => {
       // field arrive as an array rather than just the last one.
       const body = await c.req.parseBody({ all: true });
       content = (body.content as string) || "";
+      replyTo = (body.replyTo as string) || null;
 
       const raw = body.attachments;
       const files = Array.isArray(raw) ? raw : raw ? [raw] : [];
@@ -971,6 +976,7 @@ export const sendMessage = async (c: Context) => {
       try {
         const body = await c.req.json();
         content = body.content || "";
+        replyTo = body.replyTo || null;
         addUrlAttachments(body);
       } catch {
         const body = await c.req.parseBody({ all: true });
@@ -1011,11 +1017,19 @@ export const sendMessage = async (c: Context) => {
       attachmentsV2,
       groupId: new mongoose.Types.ObjectId(groupId),
       createdAt: new Date(),
+      replyTo:
+        replyTo && mongoose.Types.ObjectId.isValid(replyTo)
+          ? new mongoose.Types.ObjectId(replyTo)
+          : undefined,
     });
 
     await message.save();
 
     await message.populate("sender", "name email profilePic");
+    await message.populate({
+      path: "replyTo",
+      populate: { path: "sender", select: "name profilePic email" },
+    });
 
     const io = getIoInstance();
     io.to(groupId).emit("groupMessage", {
@@ -1142,8 +1156,22 @@ const deleteGroupMessage = async (c: Context) => {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
 
-    if (message.sender.toString() !== userId && !isOwner && !isAdmin) {
+    const isSelfDelete = message.sender.toString() === userId;
+    if (!isSelfDelete && !isOwner && !isAdmin) {
       return c.json({ error: "Not authorized to delete this message" }, 403);
+    }
+
+    // Only gates deleting your own message. An owner/admin removing someone
+    // ELSE's message is moderation, not the sender reconsidering something
+    // they said — that should stay available regardless of age.
+    if (
+      isSelfDelete &&
+      Date.now() - message.createdAt.getTime() > DELETE_WINDOW_MS
+    ) {
+      return c.json(
+        { error: "This message is too old to delete" },
+        403
+      );
     }
 
     await Message.findByIdAndDelete(messageId);
@@ -1367,6 +1395,10 @@ export const getGroupMessages = async (c: Context) => {
       .sort({ _id: -1 })
       .limit(limit + 1)
       .populate("sender", "name email profilePic username")
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender", select: "name profilePic email" },
+      })
       .lean();
 
     const hasMore = rows.length > limit;

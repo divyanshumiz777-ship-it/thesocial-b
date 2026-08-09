@@ -47,6 +47,13 @@ export interface IMessage extends Document {
   plainText?: string;
   sender: Types.ObjectId;
   edited: boolean;
+  // Added by the schema's `{ timestamps: true }` option below, not declared
+  // here until now — every existing controller that reads createdAt off a
+  // Message either sorted by it (schema-level, type-agnostic) or read it off
+  // a `.lean()` result (a plain object, not this interface), so nothing hit
+  // this gap before a 24h-delete-window check needed it on a live Document.
+  createdAt: Date;
+  updatedAt: Date;
   channel?: Types.ObjectId;
   server: Types.ObjectId;
   thread?: Types.ObjectId;

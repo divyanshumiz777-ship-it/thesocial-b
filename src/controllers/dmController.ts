@@ -12,6 +12,7 @@ import {
 import { formatSingleConversationForUser } from "../lib/dmFormatting.ts";
 import { isMemberDmBlocked } from "../lib/serverPrivacy.ts";
 import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceClient.ts";
+import { isValidChatTheme } from "../constants/chatThemes.ts";
 import { createNotification, sendNotificationViaSocket } from "./notificationController.ts";
 
 /**
@@ -39,9 +40,14 @@ export const emitConversationActivity = (
   }
 };
 
+// Only gates "for-everyone" — un-sending a message the other participant(s)
+// can already see. "for-me" (hiding it from your own view only) never
+// affects anyone else, so it stays available regardless of age.
+const DELETE_FOR_EVERYONE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export const createDm = async (c: Context) => {
   const senderId = c.get("user").id;
-  const { receiverId, content, attachments, gifUrl, stickerUrl } =
+  const { receiverId, content, attachments, gifUrl, stickerUrl, replyTo } =
     await c.req.json();
   const io = c.get("io") as Server | undefined;
 
@@ -138,6 +144,7 @@ export const createDm = async (c: Context) => {
       conversationId: conversation._id,
       attachments: attachmentsV2.map((a) => a.url as string),
       attachmentsV2,
+      replyTo: replyTo || undefined,
     });
 
     // Keep the conversation's denormalized message list current and bump
@@ -158,10 +165,15 @@ export const createDm = async (c: Context) => {
       },
     });
 
-    const populatedMessage = await Message.findById(newMessage._id).populate({
-      path: "sender",
-      select: "name profilePic email about",
-    });
+    const populatedMessage = await Message.findById(newMessage._id)
+      .populate({
+        path: "sender",
+        select: "name profilePic email about",
+      })
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender", select: "name profilePic email" },
+      });
 
     if (io) {
       // Open chat (participants currently in the conversation room).
@@ -391,6 +403,10 @@ export const getDm = async (c: Context) => {
         path: "sender",
         select: "name profilePic email about",
       })
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender", select: "name profilePic email" },
+      })
       .sort({ _id: -1 })
       .limit(limit + 1);
 
@@ -480,6 +496,16 @@ export const deleteMessage = async (c: Context) => {
       message.sender.toString() !== userId.toString()
     ) {
       return c.json({ error: "Only the sender can delete for everyone" }, 403);
+    }
+
+    if (
+      deleteType === "for-everyone" &&
+      Date.now() - message.createdAt.getTime() > DELETE_FOR_EVERYONE_WINDOW_MS
+    ) {
+      return c.json(
+        { error: "This message is too old to delete for everyone" },
+        403
+      );
     }
 
     if (deleteType === "for-everyone") {
@@ -1388,21 +1414,10 @@ export const setConversationMute = async (c: Context) => {
   }
 };
 
-const DM_THEME_PRESETS = new Set([
-  "discord",
-  "whatsapp",
-  "telegram",
-  "instagram",
-  "midnight",
-  "ocean",
-  "forest",
-  "purple",
-]);
-const CUSTOM_DM_THEME_PATTERN = /^custom:#[0-9a-fA-F]{6}$/;
-
-function isValidDmTheme(theme: string): boolean {
-  return DM_THEME_PRESETS.has(theme) || CUSTOM_DM_THEME_PATTERN.test(theme);
-}
+// Shared with chatThemeController.ts (which also validates group/community
+// themes) — moved out to backend/src/constants/chatThemes.ts so both accept
+// the exact same id set, including the legacy ids this route's existing
+// callers may still submit.
 
 /**
  * Per-viewer conversation theme (bubble/background reskin) — lives on THIS
@@ -1462,7 +1477,7 @@ export const setConversationTheme = async (c: Context) => {
         $unset: { [`settings.conversationThemes.${conversationId}`]: "" },
       });
     } else {
-      if (typeof theme !== "string" || !isValidDmTheme(theme)) {
+      if (typeof theme !== "string" || !isValidChatTheme(theme)) {
         return c.json({ error: "Invalid theme" }, 400);
       }
       await User.findByIdAndUpdate(userId, {
