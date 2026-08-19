@@ -445,7 +445,12 @@ export const editMessage = async (c: Context) => {
       { _id: messageId, sender: userId },
       { content, edited: true },
       { new: true }
-    );
+    )
+      .populate({ path: "sender", select: "name profilePic email about" })
+      .populate({
+        path: "replyTo",
+        populate: { path: "sender", select: "name profilePic email" },
+      });
 
     if (!updatedMessage) {
       return c.json(

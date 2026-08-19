@@ -17,6 +17,7 @@ vi.mock("../src/models/Message.ts", () => ({
     find: vi.fn(),
     findOne: vi.fn(),
     findById: vi.fn(),
+    findOneAndUpdate: vi.fn(),
     countDocuments: vi.fn(),
     deleteMany: vi.fn(),
   },
@@ -45,6 +46,7 @@ import {
   setConversationTheme,
   deleteMessage,
   deleteDm,
+  editMessage,
 } from "../src/controllers/dmController.ts";
 
 const ME = "507f1f77bcf86cd799439001";
@@ -463,6 +465,53 @@ describe("setConversationTheme", () => {
       { $unset: { [`settings.conversationThemes.${CONV_ID}`]: "" } }
     );
     expect(calls[0].body).toEqual({ success: true, theme: null });
+  });
+});
+
+describe("editMessage — replyTo stays populated after an edit", () => {
+  const MSG_ID = "507f1f77bcf86cd799439055";
+
+  // Regression test: an edited message that has a replyTo previously came
+  // back with sender/replyTo as raw unpopulated ObjectIds (no .populate()
+  // at all on this query), which the frontend then used to overwrite the
+  // already-correctly-populated local message — crashing on
+  // `message.replyTo.sender.name` for anyone viewing that message. See the
+  // identical, already-correct pattern in messageController.ts's
+  // updateMessage (Community), which this now matches.
+  it("populates both sender and replyTo.sender on the response", async () => {
+    const populatedResult = {
+      _id: MSG_ID,
+      content: "edited text",
+      edited: true,
+      sender: { _id: ME, name: "Me" },
+      replyTo: { _id: "507f1f77bcf86cd799439077", content: "original", sender: { _id: FRIEND, name: "Friend" } },
+    };
+    const populateCalls: any[] = [];
+    const chain: any = {
+      populate: vi.fn((arg: any) => {
+        populateCalls.push(arg);
+        return chain;
+      }),
+      then: (resolve: any) => Promise.resolve(populatedResult).then(resolve),
+    };
+    (Message.findOneAndUpdate as any).mockReturnValue(chain);
+
+    const { c, calls } = mockContext({
+      params: { conversationId: CONV_ID },
+      body: { messageId: MSG_ID, content: "edited text" },
+    });
+    await editMessage(c);
+
+    expect(calls[0].status).toBe(200);
+    expect(calls[0].body.replyTo.sender.name).toBe("Friend");
+    // Both populate calls happened — sender, then the nested replyTo.sender.
+    expect(populateCalls).toHaveLength(2);
+    expect(populateCalls[1]).toEqual(
+      expect.objectContaining({
+        path: "replyTo",
+        populate: expect.objectContaining({ path: "sender" }),
+      })
+    );
   });
 });
 

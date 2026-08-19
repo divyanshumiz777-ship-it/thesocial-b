@@ -1118,6 +1118,10 @@ const editGroupMessage = async (c: Context) => {
     await message.save();
 
     await message.populate("sender", "name email profilePic");
+    await message.populate({
+      path: "replyTo",
+      populate: { path: "sender", select: "name profilePic email" },
+    });
 
     const io = getIoInstance();
     io.to(groupId).emit("messageUpdated", message.toObject());
