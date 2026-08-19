@@ -4,6 +4,7 @@ import Notification from "../models/Notification.ts";
 import User from "../models/User.ts";
 import { Server } from "socket.io";
 import { sendPushToUser } from "../lib/webPush.ts";
+import { sendFcmToUser } from "../lib/fcmPush.ts";
 
 interface UserPayload {
   id: string;
@@ -47,13 +48,17 @@ export const createNotification = async (data: {
 
     // Fire-and-forget — a push failure (or no subscriptions/VAPID unset)
     // never blocks notification creation; the in-app notification already
-    // exists regardless of push delivery.
-    void sendPushToUser(data.recipient, {
+    // exists regardless of push delivery. Web and native (FCM) are two
+    // independent, equally-optional channels — a user may have subscriptions
+    // on either, both, or neither.
+    const pushPayload = {
       title: data.title,
       body: data.message,
       actionUrl: data.actionUrl,
       notificationId: notification._id.toString(),
-    });
+    };
+    void sendPushToUser(data.recipient, pushPayload);
+    void sendFcmToUser(data.recipient, pushPayload);
 
     return populatedNotification;
   } catch (error) {

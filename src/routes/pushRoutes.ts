@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { authMiddleware } from "../middleware/authMiddleware.ts";
-import { getPushConfig, subscribePush, unsubscribePush } from "../controllers/pushController.ts";
+import {
+  getPushConfig,
+  subscribePush,
+  unsubscribePush,
+  registerDeviceToken,
+} from "../controllers/pushController.ts";
 
 const pushRoutes = new Hono();
 
@@ -9,5 +14,6 @@ const pushRoutes = new Hono();
 pushRoutes.get("/config", getPushConfig);
 pushRoutes.post("/subscribe", authMiddleware, subscribePush);
 pushRoutes.post("/unsubscribe", authMiddleware, unsubscribePush);
+pushRoutes.post("/register-device", authMiddleware, registerDeviceToken);
 
 export default pushRoutes;

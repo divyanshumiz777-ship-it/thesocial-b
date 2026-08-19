@@ -4,6 +4,7 @@ import argon2 from "argon2";
 import { Buffer } from "node:buffer";
 import { uploadOnCloudinary } from "../lib/cloudinary.ts";
 import { verifyTotpCode, verifyAndConsumeBackupCode } from "../lib/twoFactor.ts";
+import { signAppJwt } from "../lib/appJwt.ts";
 import {
   RegisterSchema,
   LoginSchema,
@@ -48,7 +49,11 @@ export const registerUser = async (
     }
 
     await newUser.save();
-    return c.json({ user: newUser.toObject() }, 201);
+    const token = signAppJwt({
+      id: String(newUser._id),
+      email: newUser.email,
+    });
+    return c.json({ user: newUser.toObject(), token }, 201);
   } catch (error) {
     console.error("Registration Error:", error);
     return c.json(
@@ -75,7 +80,11 @@ export const providerLogin = async (
         existingUser.provider === body.provider &&
         existingUser.providerAccountId === body.providerAccountId
       ) {
-        return c.json({ user: existingUser.toObject() }, 200);
+        const token = signAppJwt({
+          id: String(existingUser._id),
+          email: existingUser.email,
+        });
+        return c.json({ user: existingUser.toObject(), token }, 200);
       } else if (existingUser.provider === "credentials") {
         return c.json(
           {
@@ -103,7 +112,11 @@ export const providerLogin = async (
         emailVerified: true,
       });
       await newUser.save();
-      return c.json({ user: newUser.toObject() }, 201);
+      const token = signAppJwt({
+        id: String(newUser._id),
+        email: newUser.email,
+      });
+      return c.json({ user: newUser.toObject(), token }, 201);
     }
   } catch (error) {
     console.error("Provider Login Error:", error);
@@ -144,7 +157,11 @@ export const linkProvider = async (
     userToUpdate.providerAccountId = body.providerAccountId;
     await userToUpdate.save();
 
-    return c.json({ user: userToUpdate.toObject() }, 200);
+    const token = signAppJwt({
+      id: String(userToUpdate._id),
+      email: userToUpdate.email,
+    });
+    return c.json({ user: userToUpdate.toObject(), token }, 200);
   } catch (error) {
     console.error("Link Provider Error:", error);
     return c.json(
@@ -222,7 +239,11 @@ export const loginUser = async (
     delete userObject.twoFactorSecret;
     delete userObject.twoFactorBackupCodes;
 
-    return c.json({ user: userObject });
+    const token = signAppJwt({
+      id: String(user._id),
+      email: user.email,
+    });
+    return c.json({ user: userObject, token });
   } catch (error) {
     console.error("Login Error:", error);
     return c.json({ message: "Internal server error during login" }, 500);

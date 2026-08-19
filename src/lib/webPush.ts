@@ -31,7 +31,13 @@ export interface PushPayload {
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
   if (!isPushEnabled()) return;
 
-  const subscriptions = await PushSubscription.find({ user: userId }).lean();
+  // platform:"web" (or absent, for docs predating the field) is what has an
+  // endpoint/keys pair at all — native (FCM) subscriptions are a separate
+  // schema shape, dispatched instead by fcmPush.ts's sendFcmToUser.
+  const subscriptions = await PushSubscription.find({
+    user: userId,
+    endpoint: { $exists: true },
+  }).lean();
   if (subscriptions.length === 0) return;
 
   const body = JSON.stringify(payload);
@@ -40,7 +46,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     subscriptions.map(async (sub) => {
       try {
         await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: sub.keys },
+          { endpoint: sub.endpoint as string, keys: sub.keys as { p256dh: string; auth: string } },
           body,
           // No options object at all previously — push services default to
           // urgency "normal", which Android/Chrome's FCM backend is allowed
