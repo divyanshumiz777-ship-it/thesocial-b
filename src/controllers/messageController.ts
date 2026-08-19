@@ -308,7 +308,7 @@ export const getMessagesByChannelId = async (c: Context) => {
       ...blockedByOthers.map((u) => u._id.toString()),
     ]);
 
-    const messages = await Message.find({ channel: channelId })
+    const messages = await Message.find({ channel: channelId, deletedFor: { $ne: viewer?.id } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -336,9 +336,14 @@ export const getMessagesByChannelId = async (c: Context) => {
 };
 
 export const deleteMessage = async (c: Context) => {
-  const { messageId, user } = c.req.param();
+  const { messageId } = c.req.param();
+  const user = c.get("user");
+  const userId = user?.id;
   const { deleteType } = await c.req.json().catch(() => ({}));
   const io: Server = c.get("io");
+  if (!user || !userId) {
+    return c.json({ error: "Authentication required" }, 401);
+  }
   if (!messageId) {
     return c.json({ error: "Message ID is required" }, 400);
   }
@@ -352,7 +357,7 @@ export const deleteMessage = async (c: Context) => {
       return c.json({ error: "Message not found" }, 404);
     }
 
-    if (message.sender.toString() !== user) {
+    if (message.sender.toString() !== userId) {
       return c.json(
         { error: "You do not have permission to delete this message" },
         403
@@ -401,13 +406,13 @@ export const deleteMessage = async (c: Context) => {
         message.deletedFor = [];
       }
 
-      if (!message.deletedFor.includes(new mongoose.Types.ObjectId(user))) {
-        message.deletedFor.push(new mongoose.Types.ObjectId(user));
+      if (!message.deletedFor.includes(new mongoose.Types.ObjectId(userId))) {
+        message.deletedFor.push(new mongoose.Types.ObjectId(userId));
       }
 
       await message.save();
 
-      io.to(user).emit("messageDeletedForMe", {
+      io.to(userId).emit("messageDeletedForMe", {
         messageId,
         type: "for-me",
       });
