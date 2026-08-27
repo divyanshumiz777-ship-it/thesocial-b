@@ -39,20 +39,28 @@ const handleValidationError = (result: any, c: any) => {
   }
 };
 
-authRouter.post("/register", zValidator("form", registerSchema), registerUser);
+authRouter.post(
+  "/register",
+  zValidator("form", registerSchema, handleValidationError),
+  registerUser,
+);
 
 authRouter.post(
   "/provider-login",
-  zValidator("json", providerLoginSchema),
+  zValidator("json", providerLoginSchema, handleValidationError),
   providerLogin,
 );
 
-authRouter.post("/login", zValidator("json", loginSchema), loginUser);
+authRouter.post(
+  "/login",
+  zValidator("json", loginSchema, handleValidationError),
+  loginUser,
+);
 
 authRouter.post(
   "/link-provider",
   authMiddleware,
-  zValidator("json", linkProviderSchema),
+  zValidator("json", linkProviderSchema, handleValidationError),
   linkProvider,
 );
 
@@ -61,18 +69,18 @@ authRouter.post("/2fa/setup", authMiddleware, setupTwoFactor);
 authRouter.post(
   "/2fa/verify-setup",
   authMiddleware,
-  zValidator("json", twoFactorVerifySchema),
+  zValidator("json", twoFactorVerifySchema, handleValidationError),
   verifyTwoFactorSetup,
 );
 authRouter.post(
   "/2fa/disable",
   authMiddleware,
-  zValidator("json", twoFactorDisableSchema),
+  zValidator("json", twoFactorDisableSchema, handleValidationError),
   disableTwoFactor,
 );
 authRouter.post(
   "/2fa/backup-codes/regenerate",
   authMiddleware,
-  zValidator("json", twoFactorRegenerateBackupCodesSchema),
+  zValidator("json", twoFactorRegenerateBackupCodesSchema, handleValidationError),
   regenerateBackupCodes,
 );
