@@ -357,7 +357,13 @@ export const deleteMessage = async (c: Context) => {
       return c.json({ error: "Message not found" }, 404);
     }
 
-    if (message.sender.toString() !== userId) {
+    // Scoped to "for-everyone" only — mirrors dmController.ts's deleteMessage
+    // exactly. A "for-me" hide is a per-viewer visibility flag (deletedFor),
+    // not a mutation of the shared message, so any channel member may apply
+    // it to their own view regardless of who sent the message (matching the
+    // mobile/web client's own canDelete assumption: "any member can hide
+    // ANY message from just their own view, sender or not").
+    if (deleteType === "for-everyone" && message.sender.toString() !== userId) {
       return c.json(
         { error: "You do not have permission to delete this message" },
         403

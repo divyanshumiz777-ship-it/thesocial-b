@@ -84,10 +84,27 @@ describe("deleteMessage (channel messages)", () => {
     expect(message.content).toBe("[This message was deleted]");
   });
 
-  it("403s when a different user tries to delete someone else's message", async () => {
-    (Message.findById as any).mockResolvedValue(makeMessage());
+  // Regression test for a confirmed bug: the ownership check ran
+  // unconditionally before branching on deleteType, so a non-sender's
+  // "for-me" (hide-from-my-own-view-only) delete 403'd too — contradicting
+  // the mobile/web clients' own assumption that any member can hide any
+  // message from just their own view. Scoped the check to "for-everyone"
+  // only, mirroring dmController.ts's deleteMessage exactly.
+  it("lets a different user delete a message for themselves only (for-me)", async () => {
+    const message = makeMessage();
+    (Message.findById as any).mockResolvedValue(message);
 
     const { c, calls } = mockContext({ userId: OTHER_USER_ID, body: {} });
+    await deleteMessage(c);
+
+    expect(calls[0].status).toBe(200);
+    expect(message.deletedForEveryone).not.toBe(true);
+  });
+
+  it("403s when a different user tries to delete someone else's message for everyone", async () => {
+    (Message.findById as any).mockResolvedValue(makeMessage());
+
+    const { c, calls } = mockContext({ userId: OTHER_USER_ID, body: { deleteType: "for-everyone" } });
     await deleteMessage(c);
 
     expect(calls[0].status).toBe(403);

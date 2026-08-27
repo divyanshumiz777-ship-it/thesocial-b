@@ -436,7 +436,11 @@ export const editServer = async (
       updates.imageUrl = cloudinaryResponse.secure_url;
     }
 
-    if (description !== undefined) updates.description = description;
+    // FormData.get() returns null (not undefined) for a key that was never
+    // appended — checking only `!== undefined` let every edit-server call
+    // that omits description (i.e. every caller that isn't editing it) wipe
+    // it to null unconditionally.
+    if (description !== undefined && description !== null) updates.description = description;
     if (serverType === "public" || serverType === "private") {
       updates.visibility = serverType;
     }

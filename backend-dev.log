@@ -1,0 +1,2287 @@
+
+> backend@1.0.0 dev
+> nodemon --watch src --ext ts --exec "node --loader ts-node/esm src/server.ts"
+
+[33m[nodemon] 3.1.10[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): src\**\*[39m
+[33m[nodemon] watching extensions: ts[39m
+[32m[nodemon] starting `node --loader ts-node/esm src/server.ts`[39m
+(node:3460) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3460) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:3460) [MONGOOSE] Warning: Duplicate schema index on {"email":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:3460) ExperimentalWarning: `--experimental-loader` may be removed in the future; instead use `register()`:
+--import 'data:text/javascript,import { register } from "node:module"; import { pathToFileURL } from "node:url"; register("ts-node/esm", pathToFileURL("./"));'
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3460) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+✅ Redis connected successfully
+✅ Redis is ready to accept commands
+✅ MongoDB connected => ac-8sdukkw-shard-00-00.0m8di1d.mongodb.net
+✅ Database connected
+✅ Socket.IO Redis adapter attached — cross-instance broadcast is active.
+🚀 Hono/Socket.IO running on http://localhost:8000
+[16:07:19.995] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/"
+Socket vu8Xp5IrgGsRmvdBAAAB connected (user 6a8081fb45c47f0da42f8825, transport=websocket)
+[16:07:56.214] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[16:07:56.214] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[16:07:56.220] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:07:56.232] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[16:07:56.233] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[16:07:56.388] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[16:07:56.397] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[16:07:56.448] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[16:07:57.128] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up"
+[16:07:57.225] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/digest/catch-me-up"
+    [35mattempt[39m: 0
+    error: "fetch failed"
+[16:08:07.239] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/digest/catch-me-up"
+    [35mattempt[39m: 1
+    error: "fetch failed"
+[16:08:27.256] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/digest/catch-me-up"
+    [35mattempt[39m: 2
+    error: "fetch failed"
+[16:08:57.265] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/digest/catch-me-up"
+    [35mattempt[39m: 3
+    error: "fetch failed"
+[16:09:37.272] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/digest/catch-me-up"
+    [35mattempt[39m: 4
+    error: "fetch failed"
+[16:09:39.085] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[16:09:39.124] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8825"
+[16:09:46.867] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/auth/2fa/status"
+[16:09:46.871] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/account-info"
+[16:09:49.291] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/settings"
+[16:10:00.216] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/user/settings"
+[16:10:03.399] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/user/settings"
+[16:10:05.872] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/user/settings"
+[16:10:07.939] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/user/settings"
+[16:10:21.829] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[16:10:21.872] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[16:10:21.887] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[16:10:21.898] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[16:10:21.906] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[16:10:22.076] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[16:10:29.786] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/6a808fd5835ee6130ebeb670/messages?limit=30"
+[16:10:29.793] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/group/6a808fd5835ee6130ebeb670"
+[16:10:29.794] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:10:35.029] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[16:10:35.030] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[16:10:35.033] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[16:10:35.042] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:10:40.978] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[16:10:41.027] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[16:10:41.027] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[16:10:41.031] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[16:10:41.037] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[16:10:41.057] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[16:10:47.442] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-servers?limit=50"
+[16:10:49.704] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:10:49.706] [34mDEBUG[39m (3460): [36mgetServerById: querying server[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+[16:10:49.943] [34mDEBUG[39m (3460): [36mgetServerById: populated server — sending to frontend[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+    [35mcategoriesCount[39m: 1
+    [35mcategories[39m: [
+      {
+        "catId": "6a80982b1c3ecbd2fa5b25c2",
+        "name": "Voice Channels",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a80982b1c3ecbd2fa5b25c3",
+          "6a8703e2fc25d67104bfa4d2"
+        ]
+      }
+    ]
+    [35mmembersCount[39m: 2
+[16:10:57.089] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:11:01.021] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/invites"
+[16:11:01.030] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/join-requests"
+[16:11:49.362] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/feed/personalized/6a8081fb45c47f0da42f8825?limit=20"
+[16:11:49.623] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "https://thesocial-recommendation-service.onrender.com"
+    [35mpath[39m: "/internal/v1/feed"
+    [35mattempt[39m: 0
+    error: "This operation was aborted"
+[16:11:49.623] [32mINFO[39m (3460): [36mresolvePersonalizedFeed: recommendation service returned nothing — falling back[39m
+    [35muserId[39m: "6a8081fb45c47f0da42f8825"
+    [35mreason[39m: "empty-or-unavailable"
+[16:11:50.966] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/explore/all?page=1&limit=20"
+[16:11:51.423] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/interactions/batch"
+[16:11:53.597] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc2255712acfd7c4927113/status"
+[16:11:53.655] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc2255712acfd7c4927113"
+[16:11:53.658] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a70acce29c186d5ac2b18aa/comments?page=1&limit=20"
+[16:11:53.664] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a704aac29c186d5ac2b141b/comments?page=1&limit=20"
+[16:11:54.616] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:11:55.319] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:12:00.339] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc2255712acfd7c4927113/status"
+[16:12:00.440] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc2255712acfd7c4927113"
+[16:12:00.452] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc28e57bf9957c357c4150"
+[16:12:00.477] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc28e57bf9957c357c4150/status"
+[16:12:00.478] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a70490029c186d5ac2b1396/comments?page=1&limit=20"
+[16:12:00.527] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a341d6f475092877460b0e7/comments?page=1&limit=20"
+[16:12:00.533] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a341d23475092877460b0e0/comments?page=1&limit=20"
+[16:12:00.646] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a33d80085f12490114629e9/comments?page=1&limit=20"
+[16:12:00.681] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a33d75b85f12490114629e4/comments?page=1&limit=20"
+[16:12:00.686] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a32903bc4fd0f284958a690/comments?page=1&limit=20"
+[16:12:13.474] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:12:13.512] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/explore/trending?limit=20"
+[16:12:13.752] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:12:57.615] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/explore/all?page=1&limit=20"
+[16:12:58.706] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/interactions/batch"
+[16:12:58.746] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc2255712acfd7c4927113/status"
+[16:12:58.760] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a70acce29c186d5ac2b18aa/comments?page=1&limit=20"
+[16:12:58.852] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a704aac29c186d5ac2b141b/comments?page=1&limit=20"
+[16:12:58.860] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc2255712acfd7c4927113"
+[16:12:59.863] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:13:00.849] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:13:03.620] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc2255712acfd7c4927113/status"
+[16:13:03.621] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc2255712acfd7c4927113"
+[16:13:03.622] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a70490029c186d5ac2b1396/comments?page=1&limit=20"
+[16:13:03.641] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc28e57bf9957c357c4150/status"
+[16:13:03.642] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a341d6f475092877460b0e7/comments?page=1&limit=20"
+[16:13:03.670] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc28e57bf9957c357c4150"
+[16:13:03.696] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a341d23475092877460b0e0/comments?page=1&limit=20"
+[16:13:03.768] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a33d80085f12490114629e9/comments?page=1&limit=20"
+[16:13:03.823] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a33d75b85f12490114629e4/comments?page=1&limit=20"
+[16:13:03.957] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a32903bc4fd0f284958a690/comments?page=1&limit=20"
+[16:13:28.475] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:13:28.735] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:13:29.689] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:13:29.759] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:13:30.736] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:13:32.433] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:13:58.034] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:13:58.711] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:13:59.281] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:13:59.312] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:13:59.533] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:13:59.668] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:14:00.555] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:14:01.445] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:14:03.221] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:14:03.683] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:14:03.812] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:14:04.399] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:14:49.113] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:14:49.138] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/explore/tag/viral?limit=20"
+[16:14:51.278] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/interactions/batch"
+[16:14:51.316] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a70acce29c186d5ac2b18aa/comments?page=1&limit=20"
+[16:14:51.361] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc2255712acfd7c4927113"
+[16:14:51.375] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a70490029c186d5ac2b1396/comments?page=1&limit=20"
+[16:14:51.421] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc2255712acfd7c4927113/status"
+[16:14:51.931] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:14:51.962] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:14:52.235] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:15:18.809] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:15:19.044] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:15:19.624] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:15:19.635] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:15:19.848] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:15:20.302] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:15:20.976] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:15:21.556] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:15:46.459] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/69cc2255712acfd7c4927113"
+[16:15:46.460] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[16:15:48.080] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc2255712acfd7c4927113/status"
+[16:15:48.088] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc2255712acfd7c4927113"
+[16:16:41.886] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:16:41.890] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/explore/tag/motivation?limit=20"
+[16:16:42.151] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:16:42.584] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/interactions/batch"
+[16:16:42.587] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/6a70490029c186d5ac2b1396/comments?page=1&limit=20"
+[16:16:42.595] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/69cc2255712acfd7c4927113"
+[16:16:42.598] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/69cc2255712acfd7c4927113/status"
+[16:16:42.692] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:16:43.061] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:16:44.618] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/track-event"
+[16:16:44.885] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[16:28:39.271] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/attachments/upload"
+[16:28:42.748] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/create"
+[16:28:42.970] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mattempt[39m: 0
+    error: "fetch failed"
+[16:28:42.971] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/ingest/document"
+    [35mattempt[39m: 0
+    error: "fetch failed"
+[16:28:43.800] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/explore/tag/motivation?limit=20"
+[16:28:52.983] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mattempt[39m: 1
+    error: "fetch failed"
+[16:28:52.984] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/ingest/document"
+    [35mattempt[39m: 1
+    error: "fetch failed"
+[16:29:12.992] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mattempt[39m: 2
+    error: "fetch failed"
+[16:29:12.992] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/ingest/document"
+    [35mattempt[39m: 2
+    error: "fetch failed"
+[16:29:42.998] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mattempt[39m: 3
+    error: "fetch failed"
+[16:29:42.998] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/ingest/document"
+    [35mattempt[39m: 3
+    error: "fetch failed"
+[16:30:23.001] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mattempt[39m: 4
+    error: "fetch failed"
+[16:30:23.007] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/ingest/document"
+    [35mattempt[39m: 4
+    error: "fetch failed"
+[16:38:10.400] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/attachments/upload"
+[16:38:14.472] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/create"
+[16:38:15.696] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/reels/explore/tag/motivation?limit=20"
+[16:38:16.817] [33mWARN[39m (3460): [36mai service call returned non-2xx[39m
+    [35mmethod[39m: "POST"
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mstatus[39m: 503
+    [35mbody[39m: {
+      "detail": "Caption generation is unavailable for this reel"
+    }
+    [35mattempt[39m: 0
+[16:38:26.349] [34mDEBUG[39m (3460): [36mai service call OK[39m
+    [35mmethod[39m: "POST"
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/ingest/document"
+    [35mstatus[39m: 200
+    [35mattempt[39m: 0
+[16:38:28.519] [33mWARN[39m (3460): [36mai service call returned non-2xx[39m
+    [35mmethod[39m: "POST"
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mstatus[39m: 503
+    [35mbody[39m: {
+      "detail": "Caption generation is unavailable for this reel"
+    }
+    [35mattempt[39m: 1
+[16:38:50.044] [33mWARN[39m (3460): [36mai service call returned non-2xx[39m
+    [35mmethod[39m: "POST"
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mstatus[39m: 503
+    [35mbody[39m: {
+      "detail": "Caption generation is unavailable for this reel"
+    }
+    [35mattempt[39m: 2
+[16:39:21.305] [33mWARN[39m (3460): [36mai service call returned non-2xx[39m
+    [35mmethod[39m: "POST"
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mstatus[39m: 503
+    [35mbody[39m: {
+      "detail": "Caption generation is unavailable for this reel"
+    }
+    [35mattempt[39m: 3
+[16:40:03.462] [33mWARN[39m (3460): [36mai service call returned non-2xx[39m
+    [35mmethod[39m: "POST"
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/reels/generate-captions"
+    [35mstatus[39m: 503
+    [35mbody[39m: {
+      "detail": "Caption generation is unavailable for this reel"
+    }
+    [35mattempt[39m: 4
+Socket vu8Xp5IrgGsRmvdBAAAB (user 6a8081fb45c47f0da42f8825) disconnected: transport close
+Socket dYbQIL5vPFGTOcHxAAAD connected (user 6a8081fb45c47f0da42f8825, transport=websocket)
+[16:54:54.151] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[16:54:54.708] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[16:54:54.718] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[16:54:54.750] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[16:54:54.756] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:54:54.758] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[16:54:54.837] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[16:54:54.897] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[16:55:20.107] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:55:20.119] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/group/6a808fd5835ee6130ebeb670"
+[16:55:20.146] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/6a808fd5835ee6130ebeb670/messages?limit=30"
+[16:55:43.108] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[16:55:43.110] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[16:55:43.128] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:55:43.132] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[16:56:09.439] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:56:09.442] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/group/6a808fd5835ee6130ebeb670"
+[16:56:09.444] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/6a808fd5835ee6130ebeb670/messages?limit=30"
+[16:56:11.140] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[16:56:11.145] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[16:56:11.150] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[16:56:11.163] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:56:16.668] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[16:56:16.670] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[16:56:16.673] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[16:56:16.677] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[16:56:16.708] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[16:56:16.853] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[16:56:22.216] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[16:56:22.216] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[16:56:22.263] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[16:56:22.264] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[16:56:22.264] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[16:56:22.307] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[16:56:35.581] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-servers?limit=50"
+[16:56:37.613] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:56:37.615] [34mDEBUG[39m (3460): [36mgetServerById: querying server[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+[16:56:37.936] [34mDEBUG[39m (3460): [36mgetServerById: populated server — sending to frontend[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+    [35mcategoriesCount[39m: 1
+    [35mcategories[39m: [
+      {
+        "catId": "6a80982b1c3ecbd2fa5b25c2",
+        "name": "Voice Channels",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a80982b1c3ecbd2fa5b25c3",
+          "6a8703e2fc25d67104bfa4d2"
+        ]
+      }
+    ]
+    [35mmembersCount[39m: 2
+[16:56:39.335] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:56:47.059] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:56:48.441] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:56:55.196] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:56:57.981] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/join-requests"
+[16:56:57.993] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/invites"
+[16:57:00.576] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:57:44.063] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[16:57:44.063] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[16:57:44.065] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[16:57:44.067] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[16:57:44.087] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[16:57:44.720] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[16:57:49.979] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:57:49.979] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/6a808fd5835ee6130ebeb670/messages?limit=30"
+[16:57:49.983] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/group/6a808fd5835ee6130ebeb670"
+[16:57:59.542] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:58:01.577] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[16:58:05.451] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+Socket dYbQIL5vPFGTOcHxAAAD (user 6a8081fb45c47f0da42f8825) disconnected: transport close
+Socket hG1ksS4-q89JbwAUAAAF connected (user 6a8081fb45c47f0da42f8825, transport=websocket)
+[16:59:08.287] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[16:59:08.288] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[16:59:08.288] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[16:59:08.299] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[16:59:08.312] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[16:59:08.760] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[16:59:08.760] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[16:59:08.836] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+Socket hG1ksS4-q89JbwAUAAAF (user 6a8081fb45c47f0da42f8825) disconnected: server namespace disconnect
+[17:02:47.025] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[17:03:18.121] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:03:18.523] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:03:18.537] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:03:18.547] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:03:18.549] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:03:18.553] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:03:18.626] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:05:04.046] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[17:05:04.519] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:05:04.522] [34mDEBUG[39m (3460): [36mgetServerById: querying server[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+[17:05:04.739] [34mDEBUG[39m (3460): [36mgetServerById: populated server — sending to frontend[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+    [35mcategoriesCount[39m: 1
+    [35mcategories[39m: [
+      {
+        "catId": "6a80982b1c3ecbd2fa5b25c2",
+        "name": "Voice Channels",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a80982b1c3ecbd2fa5b25c3",
+          "6a8703e2fc25d67104bfa4d2"
+        ]
+      }
+    ]
+    [35mmembersCount[39m: 2
+[17:05:28.733] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:08:58.861] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:09:06.126] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/invites"
+[17:09:06.126] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/join-requests"
+[17:09:09.654] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:09:09.663] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:09:10.269] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:09:10.282] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:09:18.168] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:09:18.191] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8825"
+[17:09:31.727] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:09:32.245] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+Socket zcEKlJUCPMQNSE2AAAAH connected (user 6a8081fb45c47f0da42f8825, transport=websocket)
+[17:14:58.793] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:14:58.861] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:14:58.870] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:14:58.875] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:14:58.898] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:14:59.010] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[17:14:59.024] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:14:59.127] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+Socket zcEKlJUCPMQNSE2AAAAH (user 6a8081fb45c47f0da42f8825) disconnected: server namespace disconnect
+[17:15:25.618] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[17:15:26.640] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[17:15:26.705] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[17:15:26.706] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[17:15:26.710] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[17:15:26.763] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[17:15:26.829] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[17:16:04.526] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:16:04.528] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:16:05.144] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:16:05.155] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:16:31.523] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[17:16:33.059] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/get-messages/6a80982b1c3ecbd2fa5b25c3?page=1&limit=50"
+[17:16:33.097] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:16:33.099] [34mDEBUG[39m (3460): [36mgetServerById: querying server[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+[17:16:33.251] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/community/6a80982b1c3ecbd2fa5b25c1"
+[17:16:33.252] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?channelId=6a80982b1c3ecbd2fa5b25c3"
+[17:16:33.253] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/last-read/6a80982b1c3ecbd2fa5b25c3"
+[17:16:33.839] [34mDEBUG[39m (3460): [36mgetServerById: populated server — sending to frontend[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+    [35mcategoriesCount[39m: 1
+    [35mcategories[39m: [
+      {
+        "catId": "6a80982b1c3ecbd2fa5b25c2",
+        "name": "Voice Channels",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a80982b1c3ecbd2fa5b25c3",
+          "6a8703e2fc25d67104bfa4d2"
+        ]
+      }
+    ]
+    [35mmembersCount[39m: 2
+[17:44:18.879] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:44:18.892] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:44:18.899] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:44:18.900] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:44:18.924] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:44:18.997] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[17:44:19.016] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[17:44:19.092] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[17:44:19.184] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[17:44:19.235] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[17:44:19.358] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[17:44:19.365] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:44:19.422] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:44:19.423] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:44:19.425] [34mDEBUG[39m (3460): [36mgetServerById: querying server[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+[17:44:19.454] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/get-messages/6a80982b1c3ecbd2fa5b25c3?page=1&limit=50"
+[17:44:19.515] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/community/6a80982b1c3ecbd2fa5b25c1"
+[17:44:19.606] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?channelId=6a80982b1c3ecbd2fa5b25c3"
+[17:44:19.667] [34mDEBUG[39m (3460): [36mgetServerById: populated server — sending to frontend[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+    [35mcategoriesCount[39m: 1
+    [35mcategories[39m: [
+      {
+        "catId": "6a80982b1c3ecbd2fa5b25c2",
+        "name": "Voice Channels",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a80982b1c3ecbd2fa5b25c3",
+          "6a8703e2fc25d67104bfa4d2"
+        ]
+      }
+    ]
+    [35mmembersCount[39m: 2
+[17:44:19.678] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/last-read/6a80982b1c3ecbd2fa5b25c3"
+[17:44:19.697] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[17:44:19.765] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:44:19.901] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:44:20.211] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:44:20.213] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:44:26.473] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:44:26.504] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:44:26.506] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:44:26.513] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:44:26.517] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:44:26.528] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[17:44:26.574] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[17:44:26.581] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[17:44:26.607] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[17:44:26.696] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[17:44:26.767] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[17:44:26.869] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:44:26.878] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:44:26.892] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:44:26.900] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/community/6a80982b1c3ecbd2fa5b25c1"
+[17:44:26.900] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/get-messages/6a80982b1c3ecbd2fa5b25c3?page=1&limit=50"
+[17:44:26.990] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?channelId=6a80982b1c3ecbd2fa5b25c3"
+[17:44:27.000] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/last-read/6a80982b1c3ecbd2fa5b25c3"
+[17:44:27.106] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:44:27.109] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:44:27.111] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[17:44:27.229] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:44:27.233] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:44:50.852] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:44:50.853] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:44:50.864] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:44:50.864] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:44:50.880] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[17:44:50.881] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:44:50.984] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[17:44:51.007] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[17:44:51.055] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[17:44:51.209] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[17:44:51.277] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[17:44:51.298] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:44:51.314] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:44:51.336] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:44:51.341] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/community/6a80982b1c3ecbd2fa5b25c1"
+[17:44:51.345] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/get-messages/6a80982b1c3ecbd2fa5b25c3?page=1&limit=50"
+[17:44:51.352] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?channelId=6a80982b1c3ecbd2fa5b25c3"
+[17:44:51.381] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/last-read/6a80982b1c3ecbd2fa5b25c3"
+[17:44:51.398] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[17:44:51.406] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:44:51.424] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:44:51.698] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:44:51.701] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:45:00.536] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:45:00.537] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:45:00.542] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:45:00.545] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:45:00.548] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:45:00.575] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[17:45:00.631] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[17:45:00.643] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[17:45:00.644] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[17:45:00.713] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[17:45:00.876] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[17:45:00.881] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:45:00.891] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:45:00.901] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:45:00.909] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/get-messages/6a80982b1c3ecbd2fa5b25c3?page=1&limit=50"
+[17:45:00.914] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?channelId=6a80982b1c3ecbd2fa5b25c3"
+[17:45:00.916] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/community/6a80982b1c3ecbd2fa5b25c1"
+[17:45:00.972] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/last-read/6a80982b1c3ecbd2fa5b25c3"
+[17:45:00.992] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[17:45:01.030] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:45:01.032] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:45:01.341] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:45:01.354] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:48:47.435] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:48:47.437] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:48:47.439] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:48:47.445] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:48:47.456] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:48:47.535] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[17:48:47.544] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[17:48:47.609] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[17:48:47.620] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[17:48:47.779] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[17:48:47.929] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[17:48:47.933] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:48:48.001] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:48:48.057] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:48:48.068] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:48:48.074] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/get-messages/6a80982b1c3ecbd2fa5b25c3?page=1&limit=50"
+[17:48:48.078] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:48:48.091] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/community/6a80982b1c3ecbd2fa5b25c1"
+[17:48:48.091] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?channelId=6a80982b1c3ecbd2fa5b25c3"
+[17:48:48.098] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/last-read/6a80982b1c3ecbd2fa5b25c3"
+[17:48:48.180] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:48:48.183] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:49:12.374] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:49:12.375] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:49:12.381] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:49:12.383] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:49:12.385] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:49:12.401] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[17:49:12.584] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[17:49:12.597] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[17:49:12.656] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[17:49:12.796] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[17:49:12.861] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[17:49:12.866] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:49:12.878] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:49:12.887] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:49:12.890] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:49:12.907] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/get-messages/6a80982b1c3ecbd2fa5b25c3?page=1&limit=50"
+[17:49:12.917] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:49:12.918] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/community/6a80982b1c3ecbd2fa5b25c1"
+[17:49:12.929] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?channelId=6a80982b1c3ecbd2fa5b25c3"
+[17:49:12.952] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/last-read/6a80982b1c3ecbd2fa5b25c3"
+[17:49:12.964] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:49:12.977] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:56:42.018] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:56:42.040] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:56:42.063] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:56:42.065] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:56:42.100] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:56:42.119] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[17:56:42.217] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[17:56:42.297] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[17:56:42.382] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[17:56:42.464] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[17:56:42.545] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[17:56:42.563] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[17:56:42.617] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[17:56:42.619] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[17:56:42.630] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[17:56:42.639] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:56:42.640] [34mDEBUG[39m (3460): [36mgetServerById: querying server[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+[17:56:42.661] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/get-messages/6a80982b1c3ecbd2fa5b25c3?page=1&limit=50"
+[17:56:42.759] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/community/6a80982b1c3ecbd2fa5b25c1"
+[17:56:42.848] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/last-read/6a80982b1c3ecbd2fa5b25c3"
+[17:56:42.848] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?channelId=6a80982b1c3ecbd2fa5b25c3"
+[17:56:42.931] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:56:42.939] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:56:43.136] [34mDEBUG[39m (3460): [36mgetServerById: populated server — sending to frontend[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+    [35mcategoriesCount[39m: 1
+    [35mcategories[39m: [
+      {
+        "catId": "6a80982b1c3ecbd2fa5b25c2",
+        "name": "Voice Channels",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a80982b1c3ecbd2fa5b25c3",
+          "6a8703e2fc25d67104bfa4d2"
+        ]
+      }
+    ]
+    [35mmembersCount[39m: 2
+Socket QrzpFbWimO1cIx2vAAAJ connected (user 6a8081fb45c47f0da42f8825, transport=websocket)
+[17:58:20.131] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[17:58:20.135] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[17:58:20.143] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[17:58:20.147] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[17:58:20.150] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[17:58:20.239] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[17:58:20.262] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[17:58:20.317] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[17:58:33.004] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/"
+Socket QrzpFbWimO1cIx2vAAAJ (user 6a8081fb45c47f0da42f8825) disconnected: server namespace disconnect
+[17:58:46.260] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[17:58:46.517] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[17:59:09.431] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/invites"
+[17:59:09.437] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/join-requests"
+[18:00:03.719] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/audit-logs/6a80982b1c3ecbd2fa5b25c1"
+[18:00:10.430] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/settings"
+[18:01:00.908] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[18:01:01.110] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/bot/webhooks/6a80982b1c3ecbd2fa5b25c1"
+[18:08:04.148] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[18:51:25.977] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/"
+[18:51:41.227] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[18:51:41.562] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/get-server/6a80982b1c3ecbd2fa5b25c1"
+[18:51:41.565] [34mDEBUG[39m (3460): [36mgetServerById: querying server[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+[18:51:41.819] [34mDEBUG[39m (3460): [36mgetServerById: populated server — sending to frontend[39m
+    [35mserverId[39m: "6a80982b1c3ecbd2fa5b25c1"
+    [35mcategoriesCount[39m: 1
+    [35mcategories[39m: [
+      {
+        "catId": "6a80982b1c3ecbd2fa5b25c2",
+        "name": "Voice Channels",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a80982b1c3ecbd2fa5b25c3",
+          "6a8703e2fc25d67104bfa4d2"
+        ]
+      }
+    ]
+    [35mmembersCount[39m: 2
+[18:52:24.824] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/join-requests"
+[18:52:24.825] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/6a80982b1c3ecbd2fa5b25c1/invites"
+[18:53:06.875] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/settings"
+[18:56:37.120] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/server/audit-logs/6a80982b1c3ecbd2fa5b25c1"
+[18:59:11.366] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-delivered/6a8081fb45c47f0da42f882b"
+[18:59:11.375] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/get-dm/6a8081fb45c47f0da42f882b?limit=50"
+[18:59:11.376] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/mark-read/6a8081fb45c47f0da42f882b"
+[18:59:11.383] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/message/pinned?conversationId=6a8081fb45c47f0da42f882b"
+[18:59:11.397] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/conv-status/6a8081fb45c47f0da42f882b"
+[18:59:11.563] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/chat-theme/dm/6a8081fb45c47f0da42f882b"
+[18:59:12.972] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[18:59:12.975] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[18:59:14.315] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[18:59:14.322] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[18:59:23.511] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[18:59:28.722] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/attachments/upload"
+[18:59:31.202] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/create-dm"
+[18:59:36.170] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[18:59:36.245] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[18:59:36.247] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[18:59:36.248] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[18:59:42.954] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/user-detail/6a8081fb45c47f0da42f8827"
+[18:59:42.955] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8827"
+[18:59:42.958] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/payments/tips-enabled"
+[18:59:42.965] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/follow/6a8081fb45c47f0da42f8827/status"
+[18:59:49.938] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[18:59:55.024] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[18:59:56.875] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[18:59:57.422] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[19:00:10.524] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/attachments/upload"
+[19:00:12.579] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/create-dm"
+[16:17:08.199] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/"
+[19:04:24.646] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/health"
+Socket oq-MUFnCA8hHXaFcAAAL connected (user 69cc2255712acfd7c4927113, transport=websocket)
+Socket oq-MUFnCA8hHXaFcAAAL (user 69cc2255712acfd7c4927113) disconnected: server namespace disconnect
+[19:05:53.073] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/auth/provider-login"
+[19:05:53.849] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/settings"
+[19:05:53.861] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/presence/offline"
+[19:05:55.474] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/pending"
+[19:05:55.475] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends"
+[19:05:55.495] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/friends/requests/sent"
+[19:05:55.497] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/user/conversations"
+[19:05:55.501] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/dm/groups/my-groups"
+[19:05:55.557] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/digest/catch-me-up/eligibility"
+[19:05:55.582] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://localhost:8000/api/v1/notification?page=1&limit=50"
+[19:05:56.842] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://localhost:8000/api/v1/push/register-device"
+[19:08:43.101] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/health"
+[19:30:54.398] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/auth/provider-login"
+[19:30:54.747] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/settings"
+[19:30:54.915] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/friends"
+Socket 5CEOfh50wa2rVU8zAAAN connected (user 69cc2255712acfd7c4927113, transport=websocket)
+[19:30:54.938] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/friends/requests/pending"
+[19:30:54.939] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/groups/my-groups"
+[19:30:54.946] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/friends/requests/sent"
+[19:30:54.947] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/conversations"
+[19:30:55.044] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/notification?page=1&limit=50"
+[19:30:55.045] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/digest/catch-me-up/eligibility"
+[19:30:55.086] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/presence/offline"
+Socket 5CEOfh50wa2rVU8zAAAN (user 69cc2255712acfd7c4927113) disconnected: server namespace disconnect
+Error registering device token: MongoServerError: Plan executor error during findAndModify :: caused by :: E11000 duplicate key error collection: test.pushsubscriptions index: user_1_endpoint_1 dup key: { user: ObjectId('69cc2255712acfd7c4927113'), endpoint: null }
+    at Connection.sendCommand (D:\The-Social\backend\node_modules\mongodb\lib\cmap\connection.js:306:27)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Connection.command (D:\The-Social\backend\node_modules\mongodb\lib\cmap\connection.js:334:26)
+    at async Server.command (D:\The-Social\backend\node_modules\mongodb\lib\sdam\server.js:194:29)
+    at async tryOperation (D:\The-Social\backend\node_modules\mongodb\lib\operations\execute_operation.js:213:32)
+    at async executeOperation (D:\The-Social\backend\node_modules\mongodb\lib\operations\execute_operation.js:78:16)
+    at async Collection.findOneAndUpdate (D:\The-Social\backend\node_modules\mongodb\lib\collection.js:544:16)
+    at async model.Query._findOneAndUpdate (D:\The-Social\backend\node_modules\mongoose\lib\query.js:3536:13)
+    at async model.Query.exec (D:\The-Social\backend\node_modules\mongoose\lib\query.js:4627:63)
+    at async registerDeviceToken (file:///D:/The-Social/backend/src/controllers/pushController.ts:60:9) {
+  errorLabelSet: Set(0) {},
+  errorResponse: {
+    ok: 0,
+    errmsg: "Plan executor error during findAndModify :: caused by :: E11000 duplicate key error collection: test.pushsubscriptions index: user_1_endpoint_1 dup key: { user: ObjectId('69cc2255712acfd7c4927113'), endpoint: null }",
+    code: 11000,
+    codeName: 'DuplicateKey',
+    keyPattern: { user: 1, endpoint: 1 },
+    keyValue: { user: new ObjectId('69cc2255712acfd7c4927113'), endpoint: null },
+    '$clusterTime': {
+      clusterTime: new Timestamp({ t: 1787493659, i: 3 }),
+      signature: [Object]
+    },
+    operationTime: new Timestamp({ t: 1787493659, i: 3 })
+  },
+  ok: 0,
+  code: 11000,
+  codeName: 'DuplicateKey',
+  keyPattern: { user: 1, endpoint: 1 },
+  keyValue: { user: new ObjectId('69cc2255712acfd7c4927113'), endpoint: null },
+  '$clusterTime': {
+    clusterTime: new Timestamp({ t: 1787493659, i: 3 }),
+    signature: {
+      hash: Binary.createFromBase64('6UYxlJG/aZmwWqpDG3XdTCtx0rw=', 0),
+      keyId: new Long('7629728574907351043')
+    }
+  },
+  operationTime: new Timestamp({ t: 1787493659, i: 3 })
+}
+[19:30:58.881] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/push/register-device"
+[19:31:02.320] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/get-dm/6a8589efba2506365ff8994e?limit=50"
+[19:31:02.350] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/pinned?conversationId=6a8589efba2506365ff8994e"
+[19:31:02.351] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/mark-delivered/6a8589efba2506365ff8994e"
+[19:31:02.358] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/mark-read/6a8589efba2506365ff8994e"
+[19:31:02.359] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/conv-status/6a8589efba2506365ff8994e"
+[19:31:02.449] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/chat-theme/dm/6a8589efba2506365ff8994e"
+[19:31:07.045] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/user-servers?limit=50"
+[19:31:08.066] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/feed/personalized/69cc2255712acfd7c4927113?limit=20"
+[19:31:08.344] [33mWARN[39m (3460): [36mai service call failed[39m
+    [35mbaseUrl[39m: "https://thesocial-recommendation-service.onrender.com"
+    [35mpath[39m: "/internal/v1/feed"
+    [35mattempt[39m: 0
+    error: "This operation was aborted"
+[19:31:08.344] [32mINFO[39m (3460): [36mresolvePersonalizedFeed: recommendation service returned nothing — falling back[39m
+    [35muserId[39m: "69cc2255712acfd7c4927113"
+    [35mreason[39m: "empty-or-unavailable"
+[19:31:08.788] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/friends/requests/pending"
+[19:31:08.825] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/friends"
+[19:31:08.825] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/friends/requests/sent"
+[19:31:08.869] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/interactions/batch"
+[19:31:09.289] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/follow/6a8081fb45c47f0da42f8825/status"
+[19:31:09.294] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8825"
+[19:31:09.304] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/user-detail/69cc2255712acfd7c4927113"
+[19:31:09.312] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/payments/tips-enabled"
+[19:31:09.329] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a8980e22ad2e35b268baa1c/comments?page=1&limit=20"
+[19:31:09.640] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:09.884] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:17.001] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:17.172] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:28.382] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/feed/personalized/69cc2255712acfd7c4927113?limit=20"
+[19:31:29.862] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/explore/all?page=1&limit=20"
+[19:31:29.874] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:30.046] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:30.242] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/interactions/batch"
+[19:31:30.245] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a89831e2ad2e35b268baa23/comments?page=1&limit=20"
+[19:31:30.277] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/follow/6a8081fb45c47f0da42f8825/status"
+[19:31:30.278] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/payments/tip-eligibility/6a8081fb45c47f0da42f8825"
+[19:31:30.282] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a8980e22ad2e35b268baa1c/comments?page=1&limit=20"
+[19:31:30.464] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a70acce29c186d5ac2b18aa/comments?page=1&limit=20"
+[19:31:30.472] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a704aac29c186d5ac2b141b/comments?page=1&limit=20"
+[19:31:30.476] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a70490029c186d5ac2b1396/comments?page=1&limit=20"
+[19:31:30.476] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/payments/tip-eligibility/69cc28e57bf9957c357c4150"
+[19:31:30.476] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/follow/69cc28e57bf9957c357c4150/status"
+[19:31:30.552] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a341d23475092877460b0e0/comments?page=1&limit=20"
+[19:31:30.553] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a341d6f475092877460b0e7/comments?page=1&limit=20"
+[19:31:30.617] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a33d80085f12490114629e9/comments?page=1&limit=20"
+[19:31:30.720] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:30.943] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:32.970] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:33.039] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:33.142] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:33.311] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:35.357] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:35.464] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:35.537] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:35.702] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:40.614] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a33d75b85f12490114629e4/comments?page=1&limit=20"
+[19:31:40.945] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:41.030] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:41.134] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:41.274] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:41.654] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/6a32903bc4fd0f284958a690/comments?page=1&limit=20"
+[19:31:42.177] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:42.314] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:42.372] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:42.557] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:43.157] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:43.210] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:43.338] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:43.461] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:44.478] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:44.674] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:46.465] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:46.558] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:31:46.646] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:46.781] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:31:47.308] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/presence/offline"
+[19:32:20.841] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/payments/tips-enabled"
+[19:32:20.853] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/user-detail/69cc2255712acfd7c4927113"
+[19:32:26.980] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/user-detail/69cc2255712acfd7c4927113"
+[19:32:26.988] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/assistant/capabilities"
+[19:32:26.990] [34mDEBUG[39m (3460): [36mcapabilities: HOP-2 → forwarding to chat service[39m
+    [35mmethod[39m: "GET"
+    [35mpath[39m: "/internal/v1/capabilities"
+    [35muserId[39m: "69cc2255712acfd7c4927113"
+[19:32:27.131] [34mDEBUG[39m (3460): [36mai service call OK[39m
+    [35mmethod[39m: "GET"
+    [35mbaseUrl[39m: "http://127.0.0.1:8002"
+    [35mpath[39m: "/internal/v1/capabilities"
+    [35mstatus[39m: 200
+    [35mattempt[39m: 0
+[19:32:27.131] [34mDEBUG[39m (3460): [36mcapabilities: HOP-2 ← 200 OK from chat service[39m
+    [35mcount[39m: 19
+[19:32:32.361] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/saved-items?limit=50"
+[19:32:38.214] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:32:38.325] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:32:38.392] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:32:38.547] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:32:40.149] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:32:40.316] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:32:40.331] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:32:40.558] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:32:41.343] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:32:41.443] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:32:41.516] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:32:41.717] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:32:43.232] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:32:43.331] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:32:43.409] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:32:43.564] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:32:46.816] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/server/get-server/6a3be541d1cfbe367b4c9a00"
+[19:32:46.817] [34mDEBUG[39m (3460): [36mgetServerById: querying server[39m
+    [35mserverId[39m: "6a3be541d1cfbe367b4c9a00"
+[19:32:46.980] [34mDEBUG[39m (3460): [36mgetServerById: populated server — sending to frontend[39m
+    [35mserverId[39m: "6a3be541d1cfbe367b4c9a00"
+    [35mcategoriesCount[39m: 3
+    [35mcategories[39m: [
+      {
+        "catId": "6a3be541d1cfbe367b4c9a03",
+        "name": "Notes",
+        "channelsCount": 3,
+        "channelIds": [
+          "6a3be541d1cfbe367b4c9a09",
+          "6a521ffc8baf8146d827d786",
+          "6a52324b8c219a2ec1b5b40b"
+        ]
+      },
+      {
+        "catId": "6a3be541d1cfbe367b4c9a05",
+        "name": "Social Zone",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a3be541d1cfbe367b4c9a0b",
+          "6a52200d8baf8146d827d78f"
+        ]
+      },
+      {
+        "catId": "6a3be541d1cfbe367b4c9a07",
+        "name": "Doubts",
+        "channelsCount": 2,
+        "channelIds": [
+          "6a3be541d1cfbe367b4c9a0d",
+          "6a5229068baf8146d827d8c7"
+        ]
+      }
+    ]
+    [35mmembersCount[39m: 9
+[19:32:49.479] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/get-messages/6a3be541d1cfbe367b4c9a09?page=1&limit=50"
+[19:32:49.479] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/server/get-server/6a3be541d1cfbe367b4c9a00"
+[19:32:49.495] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/chat-theme/community/6a3be541d1cfbe367b4c9a00"
+[19:32:49.495] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/pinned?channelId=6a3be541d1cfbe367b4c9a09"
+[19:32:49.498] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:32:49.861] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:49.872] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:49.874] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:49.874] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:49.881] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:50.055] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:50.055] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:50.433] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:32:51.044] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:51.171] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:51.200] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/mark-read-bulk"
+[19:32:51.803] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:32:56.802] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:32:57.994] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:33:00.884] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:33:04.675] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:33:09.296] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:33:09.939] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:33:11.186] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:33:12.337] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/chat-theme/community/6a3be541d1cfbe367b4c9a00"
+[19:33:14.149] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/last-read/6a3be541d1cfbe367b4c9a09"
+[19:33:19.580] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/user-detail/69cc2255712acfd7c4927113"
+[19:33:19.600] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/payments/tips-enabled"
+[19:33:21.622] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/user-detail/69cc2255712acfd7c4927113"
+[19:33:21.647] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/payments/tips-enabled"
+[19:33:30.498] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/user-detail/69cc2255712acfd7c4927113"
+[19:33:30.499] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/payments/tips-enabled"
+[19:33:35.407] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/find-or-restore-dm"
+[19:33:36.915] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:33:37.091] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:33:37.450] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:33:37.568] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:33:37.618] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:33:37.789] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
+[19:33:43.108] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/create-dm"
+[19:33:44.067] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/get-dm/6a8afdbf2ad2e35b268badf8?limit=50"
+[19:33:44.111] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/mark-read/6a8afdbf2ad2e35b268badf8"
+[19:33:44.112] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/pinned?conversationId=6a8afdbf2ad2e35b268badf8"
+[19:33:44.184] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/chat-theme/dm/6a8afdbf2ad2e35b268badf8"
+[19:33:44.333] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/mark-delivered/6a8afdbf2ad2e35b268badf8"
+[19:33:44.334] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/conv-status/6a8afdbf2ad2e35b268badf8"
+[19:33:52.914] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/conversations"
+[19:33:55.730] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/get-dm/6a8afdbf2ad2e35b268badf8?limit=50"
+[19:33:55.740] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/mark-delivered/6a8afdbf2ad2e35b268badf8"
+[19:33:55.743] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/conv-status/6a8afdbf2ad2e35b268badf8"
+[19:33:55.743] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "PUT"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/dm/mark-read/6a8afdbf2ad2e35b268badf8"
+[19:33:55.745] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/message/pinned?conversationId=6a8afdbf2ad2e35b268badf8"
+[19:33:55.772] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/chat-theme/dm/6a8afdbf2ad2e35b268badf8"
+[19:34:08.263] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "GET"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/user/user-detail/69cc2255712acfd7c4927113"
+[19:34:10.783] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/presence/offline"
+[19:34:11.966] [32mINFO[39m (3460): [36mIncoming request[39m
+    [35mmethod[39m: "POST"
+    [35murl[39m: "http://172.20.33.128:8000/api/v1/reels/track-event"
+[19:34:12.146] [33mWARN[39m (3460): [36mreel event publish failed[39m
+    [35mstreamKey[39m: "reel:events"
+    error: "ERR unknown command 'XADD'"
