@@ -673,8 +673,16 @@ async function startServer() {
       // liveness signal for future analytics/monitoring hooks and as a
       // second line of defense in environments where an intermediary proxy
       // interferes with WS-level control frames but passes data frames.
-      socket.on("client:heartbeat", () => {
+      socket.on("client:heartbeat", (_payload: unknown, ack?: (data: { ok: true }) => void) => {
         /* liveness signal only; no state to update today */
+        // Optional ack — existing callers that don't pass a callback are
+        // unaffected (ack is simply undefined for them). Added for mobile's
+        // foreground reconnect check (socketManager.ts's handleAppStateChange),
+        // which needs a fast, definitive "is this connection actually alive"
+        // answer rather than trusting the client-side `connected` flag, which
+        // can read stale/true for a connection Android silently killed while
+        // backgrounded, well before socket.io's own ping-timeout notices.
+        if (typeof ack === "function") ack({ ok: true });
       });
 
       // ── Self-reported presence status (online/idle/dnd) ─────────────────────
