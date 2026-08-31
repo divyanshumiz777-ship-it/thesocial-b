@@ -492,3 +492,61 @@ export async function endCall(
     console.error("endCall error:", err);
   }
 }
+
+// Called from server.ts's disconnect handler. Without this, a call left
+// "ringing" or "accepted" when a socket drops (app crash, force-quit,
+// network loss — anything short of the normal reject/cancel/end socket
+// events) stays stuck in that status forever, and inviteCall's busy check
+// matches ANY in-progress call for either party, so every future call
+// attempt between that pair permanently fails with "they're on another
+// call" even once the other side is genuinely offline. This was a
+// confirmed real gap: no disconnect cleanup existed for DM calls at all
+// (unlike voice channels' endVoiceSessionIfEmpty and group calls'
+// leaveGroupCallOnDisconnect, both already wired in server.ts).
+//
+// Only runs once this was the user's LAST connected socket — a call still
+// active on another of their devices/tabs shouldn't be torn down just
+// because one of them disconnected.
+export async function endDMCallsOnDisconnect(io: Server, userId: string): Promise<void> {
+  if (hasConnectedSocket(io, userId)) return;
+
+  try {
+    const calls = await DMCall.find({
+      status: { $in: ["ringing", "accepted"] },
+      $or: [{ caller: userId }, { callee: userId }],
+    });
+
+    for (const call of calls) {
+      const callId = call._id.toString();
+      const wasRinging = call.status === "ringing";
+      const isCaller = call.caller.toString() === userId;
+      const otherPartyId = (isCaller ? call.callee : call.caller).toString();
+
+      clearCallTimer(callId);
+      call.status = wasRinging ? "missed" : "ended";
+      call.endedAt = new Date();
+      await call.save();
+
+      if (wasRinging) {
+        // The disconnecting party was either the caller (still ringing —
+        // the callee's incoming-call UI needs to close) or the callee
+        // (the caller sees a missed call, same as any other unanswered
+        // ring), so the event differs by role even though the outcome
+        // (call-log "missed") is the same either way.
+        io.to(otherPartyId).emit(isCaller ? "call:cancelled" : "call:missed", { callId, reason: "offline" });
+        await createCallLogMessage(io, call, "missed");
+      } else {
+        io.to(callId).emit("call:ended", { callId });
+        io.socketsLeave(callId);
+        await redis.del(mediaReadyKey(callId));
+        await redis.del(mediaTriggeredKey(callId));
+        const durationSeconds = call.connectedAt
+          ? Math.max(0, Math.round((call.endedAt.getTime() - call.connectedAt.getTime()) / 1000))
+          : 0;
+        await createCallLogMessage(io, call, "completed", durationSeconds);
+      }
+    }
+  } catch (err) {
+    console.error("endDMCallsOnDisconnect error:", err);
+  }
+}

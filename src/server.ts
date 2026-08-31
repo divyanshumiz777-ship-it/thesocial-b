@@ -35,6 +35,7 @@ import {
   cancelCall as cancelDMCall,
   endCall as endDMCall,
   mediaReady as mediaReadyDMCall,
+  endDMCallsOnDisconnect,
 } from "./lib/dmCallService.ts";
 import {
   startOrJoinGroupCall,
@@ -1349,6 +1350,13 @@ async function startServer() {
             markOffline(connectedUserId, {
               immediate: reason === "server namespace disconnect",
             });
+
+            // Best-effort: resolves any DM call left "ringing"/"accepted" by
+            // this disconnect (crash, force-quit, network drop) instead of
+            // leaving it stuck forever and permanently blocking future calls
+            // with a false "busy" — no-ops if the user has another connected
+            // socket or no in-progress call at all.
+            void endDMCallsOnDisconnect(io, connectedUserId);
 
             // Clear any pending typing timeouts for this user
             for (const [key, handle] of typingTimeouts.entries()) {
