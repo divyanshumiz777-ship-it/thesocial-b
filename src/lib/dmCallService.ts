@@ -4,6 +4,7 @@ import Conversation from "../models/Conversation.ts";
 import Message from "../models/Message.ts";
 import User from "../models/User.ts";
 import DMCall, { IDMCall } from "../models/DMCall.ts";
+import redis from "./redis.ts";
 import {
   createNotification,
   sendNotificationViaSocket,
@@ -37,7 +38,16 @@ const CALL_RING_TIMEOUT_MS = 45_000;
 // cosmetically-stale row, not a functional problem — nothing polls it).
 const callTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-// callId -> set of userIds who've confirmed their OWN local media is ready.
+// callId -> set of userIds who've confirmed their OWN local media is ready,
+// held in Redis (not a local Map) — the caller's and callee's sockets can
+// land on DIFFERENT backend instances behind Railway's load balancer, and a
+// plain in-process Map would only ever see whichever side happened to hit
+// THIS process, leaving bothReady permanently false on every instance. This
+// was a confirmed live bug: both sides emitted call:media-ready with a
+// matching callId, but webrtc:user-joined never fired. Redis is already the
+// shared cross-instance store this backend uses (see server.ts's Socket.IO
+// redis-adapter wiring for the same class of problem on the emit side).
+//
 // webrtc:user-joined is only ever emitted once BOTH sides are in this set —
 // each side's useWebRTC only registers its offer/answer/ICE listeners once
 // ITS OWN getUserMedia() resolves (mirrors the community voice-channel gate:
@@ -47,7 +57,13 @@ const callTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // several seconds on a first-ever permission prompt), and Socket.IO does not
 // replay missed events. Waiting for both removes the race entirely instead
 // of relying on emission-order luck.
-const callMediaReady = new Map<string, Set<string>>();
+const MEDIA_READY_TTL_SECONDS = 120;
+function mediaReadyKey(callId: string) {
+  return `dmcall:media-ready:${callId}`;
+}
+function mediaTriggeredKey(callId: string) {
+  return `dmcall:media-triggered:${callId}`;
+}
 
 function clearCallTimer(callId: string) {
   const timer = callTimers.get(callId);
@@ -345,14 +361,6 @@ export async function acceptCall(
   }
 }
 
-// callIds whose "both sides ready" signal has already fired — guards against
-// re-emitting webrtc:user-joined (and thus a second, leaked RTCPeerConnection
-// on the caller's side — handleUserJoined doesn't close an existing one
-// before creating a new one) if mediaReady is ever called again after the
-// pair is already complete (e.g. a client-side reconnect re-running its
-// ready effect).
-const callMediaTriggered = new Set<string>();
-
 export async function mediaReady(
   io: Server,
   userId: string,
@@ -360,30 +368,39 @@ export async function mediaReady(
 ): Promise<void> {
   const callId = data?.callId;
   if (!callId || !mongoose.Types.ObjectId.isValid(callId)) return;
-  if (callMediaTriggered.has(callId)) return;
 
   try {
+    // Guards against re-emitting webrtc:user-joined (and thus a second,
+    // leaked RTCPeerConnection on the caller's side — handleUserJoined
+    // doesn't close an existing one before creating a new one) if this is
+    // ever called again after the pair is already complete (e.g. a
+    // client-side reconnect re-running its ready effect).
+    const alreadyTriggered = await redis.exists(mediaTriggeredKey(callId));
+    if (alreadyTriggered) return;
+
     const call = await DMCall.findOne({ _id: callId, status: "accepted" })
       .select("caller callee")
       .lean();
     if (!call) return;
     if (call.caller.toString() !== userId && call.callee.toString() !== userId) return;
 
-    let ready = callMediaReady.get(callId);
-    if (!ready) {
-      ready = new Set();
-      callMediaReady.set(callId, ready);
-    }
-    ready.add(userId);
+    const readyKey = mediaReadyKey(callId);
+    await redis.sadd(readyKey, userId);
+    await redis.expire(readyKey, MEDIA_READY_TTL_SECONDS);
+    const readyMembers = await redis.smembers(readyKey);
 
     const bothReady =
-      ready.has(call.caller.toString()) && ready.has(call.callee.toString());
+      readyMembers.includes(call.caller.toString()) && readyMembers.includes(call.callee.toString());
     console.log(
-      `[dmCall] mediaReady callId=${callId} userId=${userId} readySet=${[...ready].join(",")} bothReady=${bothReady}`,
+      `[dmCall] mediaReady callId=${callId} userId=${userId} readySet=${readyMembers.join(",")} bothReady=${bothReady}`,
     );
     if (!bothReady) return;
 
-    callMediaTriggered.add(callId);
+    // Atomic cross-instance claim — if two instances both observe bothReady
+    // in the same race window, only the one that wins this NX set actually
+    // emits, so webrtc:user-joined still fires exactly once.
+    const claimed = await redis.set(mediaTriggeredKey(callId), "1", "EX", MEDIA_READY_TTL_SECONDS, "NX");
+    if (claimed !== "OK") return;
 
     // Naming the callee mirrors community voice channels' own semantics: the
     // OTHER party (caller) reacts to webrtc:user-joined by creating the
@@ -464,8 +481,8 @@ export async function endCall(
 
     io.to(callId).emit("call:ended", { callId });
     io.socketsLeave(callId);
-    callMediaReady.delete(callId);
-    callMediaTriggered.delete(callId);
+    await redis.del(mediaReadyKey(callId));
+    await redis.del(mediaTriggeredKey(callId));
 
     const durationSeconds = call.connectedAt
       ? Math.max(0, Math.round((endedAt.getTime() - call.connectedAt.getTime()) / 1000))
