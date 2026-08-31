@@ -328,8 +328,12 @@ export async function acceptCall(
     // Only the ONE socket that placed the call joins — not every tab/device
     // the caller has open (see DMCall.callerSocketId's own comment) — and
     // likewise only this specific callee socket, not all of the callee's.
-    io.sockets.sockets.get(call.callerSocketId)?.join(callId);
+    const callerSocket = io.sockets.sockets.get(call.callerSocketId);
+    callerSocket?.join(callId);
     socket.join(callId);
+    console.log(
+      `[dmCall] acceptCall callId=${callId} callerSocketId=${call.callerSocketId} callerSocketFound=${!!callerSocket} calleeSocketId=${socket.id}`,
+    );
 
     // Any OTHER tabs/devices the callee has open were also rung — tell them
     // this call was answered elsewhere so their incoming-call UI closes.
@@ -374,6 +378,9 @@ export async function mediaReady(
 
     const bothReady =
       ready.has(call.caller.toString()) && ready.has(call.callee.toString());
+    console.log(
+      `[dmCall] mediaReady callId=${callId} userId=${userId} readySet=${[...ready].join(",")} bothReady=${bothReady}`,
+    );
     if (!bothReady) return;
 
     callMediaTriggered.add(callId);
@@ -383,6 +390,8 @@ export async function mediaReady(
     // RTCPeerConnection and sending the offer; the callee's own client sees
     // remoteId === its own userId and no-ops (same self-check every other
     // webrtc:user-joined recipient already has).
+    const roomSize = io.sockets.adapter.rooms.get(callId)?.size ?? 0;
+    console.log(`[dmCall] emitting webrtc:user-joined for callId=${callId}, room size=${roomSize}`);
     io.to(callId).emit("webrtc:user-joined", { userId: call.callee.toString() });
   } catch (err) {
     console.error("mediaReady error:", err);
