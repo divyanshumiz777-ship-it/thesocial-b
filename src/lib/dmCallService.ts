@@ -368,6 +368,7 @@ export async function mediaReady(
 ): Promise<void> {
   const callId = data?.callId;
   if (!callId || !mongoose.Types.ObjectId.isValid(callId)) return;
+  console.log(`[dmCall] mediaReady called: callId=${callId} userId=${userId}`);
 
   try {
     // Guards against re-emitting webrtc:user-joined (and thus a second,
@@ -378,10 +379,20 @@ export async function mediaReady(
     const alreadyTriggered = await redis.exists(mediaTriggeredKey(callId));
     if (alreadyTriggered) return;
 
+    // Forced to the primary for the same reason as inviteCall's busy check
+    // above: media-ready fires within ~1s of acceptCall's status write, well
+    // within reach of replication lag to a secondary under the connection's
+    // default "primaryPreferred" — a stale read here silently drops this
+    // event (call is null, function just returns) instead of erroring, so
+    // this was invisible without directly comparing client and server logs.
     const call = await DMCall.findOne({ _id: callId, status: "accepted" })
       .select("caller callee")
+      .read("primary")
       .lean();
-    if (!call) return;
+    if (!call) {
+      console.log(`[dmCall] mediaReady: no accepted call found for callId=${callId}`);
+      return;
+    }
     if (call.caller.toString() !== userId && call.callee.toString() !== userId) return;
 
     const readyKey = mediaReadyKey(callId);
