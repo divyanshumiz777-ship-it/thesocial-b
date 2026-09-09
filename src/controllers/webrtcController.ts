@@ -8,6 +8,15 @@ import { Context } from "hono";
 // fresh set of iceServers right before creating a peer connection.
 const CLOUDFLARE_TURN_TTL_SECONDS = 86_400; // 24h — comfortably covers any single call/session
 
+// The fetch below had NO timeout of its own, so a slow or unresponsive
+// Cloudflare API held this request open indefinitely: the caller (mobile's
+// fetchIceServers) gave up on its own deadline and downgraded the call to
+// STUN-only, while this handler stayed parked on a socket that would never
+// produce anything useful. Cap it well INSIDE the client's 8s budget so a
+// stalled upstream returns a fast, explicit "no TURN available" instead of
+// being indistinguishable from a dead backend.
+const CLOUDFLARE_FETCH_TIMEOUT_MS = 6_000;
+
 export const getTurnCredentials = async (c: Context) => {
   const keyId = process.env.CLOUDFLARE_TURN_KEY_ID;
   const apiToken = process.env.CLOUDFLARE_TURN_API_TOKEN;
@@ -28,6 +37,7 @@ export const getTurnCredentials = async (c: Context) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ ttl: CLOUDFLARE_TURN_TTL_SECONDS }),
+        signal: AbortSignal.timeout(CLOUDFLARE_FETCH_TIMEOUT_MS),
       },
     );
     if (!res.ok) {
