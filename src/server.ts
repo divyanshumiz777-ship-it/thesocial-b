@@ -43,6 +43,12 @@ import {
   leaveGroupCallOnDisconnect,
 } from "./lib/groupCallService.ts";
 import { isAdminEmail } from "./lib/admin.ts";
+import {
+  getRequestMetricsWindow,
+  checkMongoHealth,
+  checkRedisHealth,
+  getConnectedSocketCount,
+} from "./lib/systemHealth.ts";
 
 /**
  * server.ts — production-grade server bootstrap.
@@ -594,10 +600,22 @@ async function startServer() {
         const startOfToday = new Date();
         startOfToday.setHours(0, 0, 0, 0);
 
-        const [activeVoiceSessions, messagesLast5Min, newUsersToday] = await Promise.all([
+        const [
+          activeVoiceSessions,
+          messagesLast5Min,
+          newUsersToday,
+          requestMetrics,
+          mongoHealth,
+          redisHealth,
+          connectedSockets,
+        ] = await Promise.all([
           VoiceSession.countDocuments({ status: "active" }),
           Message.countDocuments({ createdAt: { $gte: fiveMinAgo } }),
           User.countDocuments({ createdAt: { $gte: startOfToday } }),
+          getRequestMetricsWindow(1),
+          checkMongoHealth(),
+          checkRedisHealth(),
+          getConnectedSocketCount(io),
         ]);
 
         io.to("admin-live").emit("admin:live-stats", {
@@ -605,6 +623,12 @@ async function startServer() {
           activeVoiceSessions,
           messagesLast5Min,
           newUsersToday,
+          connectedSockets,
+          requestsLastMinute: requestMetrics.total,
+          errorsLastMinute: requestMetrics.errorCount,
+          avgLatencyMsLastMinute: requestMetrics.avgLatencyMs,
+          mongoHealthy: mongoHealth.healthy,
+          redisHealthy: redisHealth.healthy,
           ts: Date.now(),
         });
       } catch (err) {

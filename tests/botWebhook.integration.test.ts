@@ -112,8 +112,13 @@ afterAll(() => {
 
 describe("Bot & Webhook Integration", () => {
   it("should create a bot and log webhook event", async () => {
+    // Incidental server-is-up smoke check, not a health-check semantics
+    // test (see health.test.ts for that) — /healthz now does real Mongo/Redis
+    // pings, and Mongoose is fully mocked/unconnected in this file, so the
+    // reported status can legitimately be 503 here even though the server
+    // itself is up and every other assertion below passes.
     const healthRes = await request.get("/healthz");
-    expect(healthRes.status).toBe(200);
+    expect([200, 503]).toContain(healthRes.status);
 
     const listBots = await request
       .get(`/api/v1/bot/bots/${TEST_SERVER_ID}`)

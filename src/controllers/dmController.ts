@@ -67,12 +67,16 @@ export const createDm = async (c: Context) => {
   }
 
   try {
-    const sender = await User.findById(senderId);
+    // Independent lookups — neither depends on the other's result — so run
+    // them concurrently instead of paying two sequential round trips on
+    // every send.
+    const [sender, receiver] = await Promise.all([
+      User.findById(senderId),
+      User.findById(receiverId),
+    ]);
     if (!sender) {
       return c.json({ error: "Sender not found" }, 404);
     }
-
-    const receiver = await User.findById(receiverId);
     if (!receiver) {
       return c.json({ error: "Receiver not found" }, 404);
     }
@@ -153,27 +157,31 @@ export const createDm = async (c: Context) => {
     // each participant's per-user `deletedAt` cutoff — otherwise the conversation
     // resurfaces in the list but reads still filter out all history before the
     // old cutoff, producing a "ghost" empty conversation.
-    await Conversation.findByIdAndUpdate(conversation._id, {
-      $push: { messages: newMessage._id },
-      $pull: {
-        hiddenFor: { $in: [senderId, receiverId] },
-        deletedFor: { $in: [senderId, receiverId] },
-      },
-      $unset: {
-        [`deletedAt.${senderId}`]: "",
-        [`deletedAt.${receiverId}`]: "",
-      },
-    });
-
-    const populatedMessage = await Message.findById(newMessage._id)
-      .populate({
-        path: "sender",
-        select: "name profilePic email about",
-      })
-      .populate({
-        path: "replyTo",
-        populate: { path: "sender", select: "name profilePic email" },
-      });
+    // Run alongside the populated-message read below — that query keys off
+    // newMessage._id from the Message.create above, not off this update's
+    // result (which isn't even used), so the two are independent.
+    const [, populatedMessage] = await Promise.all([
+      Conversation.findByIdAndUpdate(conversation._id, {
+        $push: { messages: newMessage._id },
+        $pull: {
+          hiddenFor: { $in: [senderId, receiverId] },
+          deletedFor: { $in: [senderId, receiverId] },
+        },
+        $unset: {
+          [`deletedAt.${senderId}`]: "",
+          [`deletedAt.${receiverId}`]: "",
+        },
+      }),
+      Message.findById(newMessage._id)
+        .populate({
+          path: "sender",
+          select: "name profilePic email about",
+        })
+        .populate({
+          path: "replyTo",
+          populate: { path: "sender", select: "name profilePic email" },
+        }),
+    ]);
 
     if (io) {
       // Open chat (participants currently in the conversation room).
@@ -215,34 +223,51 @@ export const createDm = async (c: Context) => {
     // Notification creation (and the push it triggers) has no real
     // dependency on the realtime layer being up; only the optional
     // in-app-toast socket emit does.
-    try {
-      const level = receiver.settings?.notifications?.level || "all";
-      const isMuted = (receiver.settings?.mutedConversations || []).some(
-        (id) => id?.toString() === conversation._id.toString()
-      );
-      if (level !== "none" && !isMuted) {
-        const senderName = sender.name || "Someone";
-        const snippet = content
-          ? String(content).slice(0, 140)
-          : hasAttachments
-            ? "📎 Sent an attachment"
-            : "";
-        const notification = await createNotification({
-          recipient: receiverId,
-          sender: senderId,
-          type: "dm_message",
-          title: senderName,
-          message: snippet,
-          metadata: { conversationId: conversation._id.toString(), messageId: newMessage._id.toString() },
-          actionUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/community/me?conversation=${conversation._id.toString()}`,
-        });
+    //
+    // Fire-and-forget, matching sendPushToUser/sendFcmToUser inside
+    // createNotification just below this. createNotification does ~3
+    // sequential DB round trips (block-check, Notification.create, populated
+    // findById) that have no bearing on this request's response — awaiting
+    // it here made every DM send wait on that whole chain for nothing.
+    // createNotification already catches all of its own errors internally
+    // and resolves to null on failure, so this can never produce an
+    // unhandled rejection and needs no .catch() here.
+    const level = receiver.settings?.notifications?.level || "all";
+    const isMuted = (receiver.settings?.mutedConversations || []).some(
+      (id) => id?.toString() === conversation._id.toString()
+    );
+    if (level !== "none" && !isMuted) {
+      const senderName = sender.name || "Someone";
+      const snippet = content
+        ? String(content).slice(0, 140)
+        : hasAttachments
+          ? "📎 Sent an attachment"
+          : "";
+      void createNotification({
+        recipient: receiverId,
+        sender: senderId,
+        type: "dm_message",
+        title: senderName,
+        message: snippet,
+        metadata: { conversationId: conversation._id.toString(), messageId: newMessage._id.toString() },
+        actionUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/community/me?conversation=${conversation._id.toString()}`,
+      }).then((notification) => {
         if (notification && io) sendNotificationViaSocket(io, receiverId, notification);
-      }
-    } catch (err) {
-      console.error("Failed to create DM message notification:", err);
+      });
     }
 
-    await invalidateAfterDM(conversation._id.toString(), senderId);
+    // Deliberately NOT calling invalidateAfterDM here (unlike every other DM
+    // mutation in this file). Verified: CacheInvalidator.invalidateConversation's
+    // two named patterns (dm/get-dm/*, user/conversations*) target routes that
+    // are BOTH permanently in app.ts's cache skip list (socket provides
+    // liveness for both) — those two Redis SCAN+DEL round trips always match
+    // zero keys. Its third pattern, cache:${senderId}:*, IS real (senderId is
+    // always passed) — it wipes every cached GET response for the sender's
+    // account across unrelated routes (server details, channel details, follow
+    // status, ...) — but nothing about sending a DM makes any of that stale,
+    // so it was pure waste too: 2 guaranteed no-op Redis round trips plus a
+    // needless cache-hit-rate hit for the sender, both sitting directly in
+    // front of every send's response.
     return c.json(populatedMessage ?? newMessage, 201);
   } catch (error) {
     console.error("Error creating DM:", error);

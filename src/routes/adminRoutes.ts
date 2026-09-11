@@ -11,6 +11,9 @@ import {
   resolveReport,
   getAdminAppeals,
   resolveAppeal,
+  getSystemHealthSnapshot,
+  getSystemHealthSeries,
+  getSystemHealthDependencies,
 } from "../controllers/adminController.ts";
 
 const adminRouter = new Hono();
@@ -27,5 +30,8 @@ adminRouter.get("/reports/:userId/servers", getServersForReportedUser);
 adminRouter.patch("/reports/:reportId/resolve", resolveReport);
 adminRouter.get("/appeals", getAdminAppeals);
 adminRouter.patch("/appeals/:appealId/resolve", resolveAppeal);
+adminRouter.get("/system-health", getSystemHealthSnapshot);
+adminRouter.get("/system-health/series", getSystemHealthSeries);
+adminRouter.get("/system-health/dependencies", getSystemHealthDependencies);
 
 export { adminRouter };

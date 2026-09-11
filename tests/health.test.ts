@@ -18,11 +18,22 @@ afterAll(() => {
 });
 
 describe("Health Check Endpoint", () => {
-  it("should return status ok", async () => {
+  // /healthz now actually checks Mongo + Redis (see lib/systemHealth.ts)
+  // instead of being a pure in-process no-op — this test harness never
+  // calls connectDB() (it imports `app` directly, with Mongoose unconnected),
+  // so mongo.healthy is expected to be false here even though the endpoint
+  // itself is working correctly. Assert the real contract (shape + a status
+  // that matches the reported health) rather than hardcoding "always 200".
+  it("reports dependency health", async () => {
     const res = await request.get("/healthz");
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe("ok");
+    expect([200, 503]).toContain(res.status);
+    expect(["ok", "degraded"]).toContain(res.body.status);
     expect(typeof res.body.uptime).toBe("number");
     expect(typeof res.body.timestamp).toBe("number");
+    expect(typeof res.body.mongo.healthy).toBe("boolean");
+    expect(typeof res.body.redis.healthy).toBe("boolean");
+    expect(res.body.status).toBe(
+      res.body.mongo.healthy && res.body.redis.healthy ? "ok" : "degraded",
+    );
   });
 });

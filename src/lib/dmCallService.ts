@@ -518,6 +518,78 @@ export async function endCall(
 // Only runs once this was the user's LAST connected socket — a call still
 // active on another of their devices/tabs shouldn't be torn down just
 // because one of them disconnected.
+// A dropped socket is NOT proof the user left the call. Android backgrounds
+// the app — and can suspend its networking — for a system consent dialog, a
+// notification-shade pull, an incoming phone call, or Doze, any of which can
+// kill the websocket for a few seconds while the user is still very much on
+// the call. Ending an ACCEPTED call the instant its socket died therefore tore
+// down live calls, most reproducibly when a peer started a SCREEN SHARE:
+// Android's MediaProjection consent dialog is a separate system activity that
+// always backgrounds the sharer, the client's own AppState handler then POSTs
+// /presence/offline, and that endpoint force-disconnects the socket
+// (io.in(userId).disconnectSockets(true)) — landing us straight here and
+// emitting call:ended to the peer. The client side of that is fixed too
+// (socketManager.setCallActive suppresses the beacon mid-call), but this
+// grace window is the defence-in-depth that also covers real network blips.
+const ACCEPTED_CALL_DISCONNECT_GRACE_MS = 15_000;
+const disconnectGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// io.sockets.adapter.rooms is LOCAL to this instance, but server.ts installs
+// the Redis adapter, so a reconnecting client may land on a DIFFERENT replica.
+// fetchSockets() is cluster-wide and is therefore the only check that can
+// actually observe that reconnect — the synchronous hasConnectedSocket() would
+// report "still gone" and kill a call the user had already rejoined.
+async function hasConnectedSocketAnywhere(io: Server, userId: string): Promise<boolean> {
+  try {
+    return (await io.in(userId).fetchSockets()).length > 0;
+  } catch {
+    return hasConnectedSocket(io, userId);
+  }
+}
+
+async function endAcceptedCallNow(io: Server, callId: string): Promise<void> {
+  // Re-read under the "accepted" filter: the call may have ended normally
+  // (hangup/reject) during the grace window, in which case there is nothing
+  // to do and definitely no second call-log entry to write.
+  const call = await DMCall.findOneAndUpdate(
+    { _id: callId, status: "accepted" },
+    { status: "ended", endedAt: new Date() },
+    { new: true },
+  );
+  if (!call) return;
+
+  clearCallTimer(callId);
+  io.to(callId).emit("call:ended", { callId });
+  io.socketsLeave(callId);
+  await redis.del(mediaReadyKey(callId));
+  await redis.del(mediaTriggeredKey(callId));
+  const durationSeconds = call.connectedAt
+    ? Math.max(0, Math.round(((call.endedAt as Date).getTime() - call.connectedAt.getTime()) / 1000))
+    : 0;
+  await createCallLogMessage(io, call, "completed", durationSeconds);
+}
+
+function scheduleAcceptedCallTeardown(io: Server, callId: string, userId: string): void {
+  const key = `${callId}:${userId}`;
+  if (disconnectGraceTimers.has(key)) return;
+  console.log(
+    `[dmCall] socket for ${userId} dropped during accepted call ${callId} — ` +
+      `holding ${ACCEPTED_CALL_DISCONNECT_GRACE_MS}ms for a reconnect before ending`,
+  );
+  const timer = setTimeout(() => {
+    disconnectGraceTimers.delete(key);
+    void (async () => {
+      if (await hasConnectedSocketAnywhere(io, userId)) {
+        console.log(`[dmCall] ${userId} reconnected within grace — leaving call ${callId} alone`);
+        return;
+      }
+      console.log(`[dmCall] ${userId} still gone after grace — ending call ${callId}`);
+      await endAcceptedCallNow(io, callId);
+    })().catch((err) => console.error("accepted-call disconnect teardown error:", err));
+  }, ACCEPTED_CALL_DISCONNECT_GRACE_MS);
+  disconnectGraceTimers.set(key, timer);
+}
+
 export async function endDMCallsOnDisconnect(io: Server, userId: string): Promise<void> {
   if (hasConnectedSocket(io, userId)) return;
 
@@ -533,29 +605,26 @@ export async function endDMCallsOnDisconnect(io: Server, userId: string): Promis
       const isCaller = call.caller.toString() === userId;
       const otherPartyId = (isCaller ? call.callee : call.caller).toString();
 
+      // An ACCEPTED call gets the reconnect grace window. A still-RINGING one
+      // is torn down immediately as before: nobody is mid-conversation, and
+      // leaving a phantom ring for 15s is worse than cancelling it promptly.
+      if (!wasRinging) {
+        scheduleAcceptedCallTeardown(io, callId, userId);
+        continue;
+      }
+
       clearCallTimer(callId);
-      call.status = wasRinging ? "missed" : "ended";
+      call.status = "missed";
       call.endedAt = new Date();
       await call.save();
 
-      if (wasRinging) {
-        // The disconnecting party was either the caller (still ringing —
-        // the callee's incoming-call UI needs to close) or the callee
-        // (the caller sees a missed call, same as any other unanswered
-        // ring), so the event differs by role even though the outcome
-        // (call-log "missed") is the same either way.
-        io.to(otherPartyId).emit(isCaller ? "call:cancelled" : "call:missed", { callId, reason: "offline" });
-        await createCallLogMessage(io, call, "missed");
-      } else {
-        io.to(callId).emit("call:ended", { callId });
-        io.socketsLeave(callId);
-        await redis.del(mediaReadyKey(callId));
-        await redis.del(mediaTriggeredKey(callId));
-        const durationSeconds = call.connectedAt
-          ? Math.max(0, Math.round((call.endedAt.getTime() - call.connectedAt.getTime()) / 1000))
-          : 0;
-        await createCallLogMessage(io, call, "completed", durationSeconds);
-      }
+      // The disconnecting party was either the caller (still ringing —
+      // the callee's incoming-call UI needs to close) or the callee
+      // (the caller sees a missed call, same as any other unanswered
+      // ring), so the event differs by role even though the outcome
+      // (call-log "missed") is the same either way.
+      io.to(otherPartyId).emit(isCaller ? "call:cancelled" : "call:missed", { callId, reason: "offline" });
+      await createCallLogMessage(io, call, "missed");
     }
   } catch (err) {
     console.error("endDMCallsOnDisconnect error:", err);

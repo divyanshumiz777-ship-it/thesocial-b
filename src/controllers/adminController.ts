@@ -13,6 +13,15 @@ import Appeal from "../models/Appeal.ts";
 import { applyBan, applyMute } from "../lib/moderationActions.ts";
 import { createNotification, sendNotificationViaSocket } from "./notificationController.ts";
 import { invalidateAfterServerUpdate } from "../lib/cacheInvalidation.ts";
+import { getIoInstance } from "../config/socket.ts";
+import {
+  getRequestMetricsWindow,
+  getRequestMetricsSeries,
+  checkMongoHealth,
+  checkRedisHealth,
+  getConnectedSocketCount,
+} from "../lib/systemHealth.ts";
+import { getMongoPoolStats, MONGO_POOL_CONFIG } from "../config/db.ts";
 
 const REPORT_MUTE_DURATION_MS = 24 * 60 * 60 * 1000; // 24h — a fixed, conservative default for a report-driven mute; server moderators can still apply a custom duration through the existing per-server mute route.
 
@@ -510,5 +519,66 @@ export const resolveAppeal = async (c: Context) => {
   } catch (error) {
     console.error("Error resolving appeal:", error);
     return c.json({ error: "Internal server error" }, 500);
+  }
+};
+
+// ── System health (admin System tab) ───────────────────────────────────────
+// See lib/systemHealth.ts for the Redis-backed request/latency counters this
+// reads and the dependency-health checks. Snapshot covers the trailing 5
+// minutes — long enough to smooth out a single quiet/noisy minute, short
+// enough to still read as "right now".
+const SNAPSHOT_WINDOW_MINUTES = 5;
+
+export const getSystemHealthSnapshot = async (c: Context) => {
+  try {
+    const io = getIoInstance();
+    const [requestMetrics, mongo, redisHealth, connectedSockets] = await Promise.all([
+      getRequestMetricsWindow(SNAPSHOT_WINDOW_MINUTES),
+      checkMongoHealth(),
+      checkRedisHealth(),
+      getConnectedSocketCount(io),
+    ]);
+
+    return c.json({
+      windowMinutes: SNAPSHOT_WINDOW_MINUTES,
+      requests: requestMetrics,
+      connectedSockets,
+      mongo,
+      redis: redisHealth,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error fetching system health snapshot:", error);
+    return c.json({ error: "Failed to fetch system health" }, 500);
+  }
+};
+
+const MAX_SERIES_MINUTES = 180;
+
+export const getSystemHealthSeries = async (c: Context) => {
+  try {
+    const minutes = Math.min(
+      Math.max(parseInt(c.req.query("minutes") || "60", 10) || 60, 5),
+      MAX_SERIES_MINUTES,
+    );
+    const series = await getRequestMetricsSeries(minutes);
+    return c.json({ series, minutes });
+  } catch (error) {
+    console.error("Error fetching system health series:", error);
+    return c.json({ error: "Failed to fetch system health series" }, 500);
+  }
+};
+
+export const getSystemHealthDependencies = async (c: Context) => {
+  try {
+    const [mongo, redisHealth] = await Promise.all([checkMongoHealth(), checkRedisHealth()]);
+    return c.json({
+      mongo: { ...mongo, pool: { ...getMongoPoolStats(), ...MONGO_POOL_CONFIG } },
+      redis: redisHealth,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error fetching system health dependencies:", error);
+    return c.json({ error: "Failed to fetch system health dependencies" }, 500);
   }
 };

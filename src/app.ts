@@ -5,7 +5,8 @@ import cacheMiddleware from "./middleware/cacheMiddleware.ts";
 import requestLogger from "./middleware/requestLogger.ts";
 import helmetMiddleware from "./middleware/helmetMiddleware.ts";
 import Sentry from "./lib/sentry.ts";
-import { metrics, metricsEndpoint } from "./middleware/metrics.ts";
+import { systemMetrics } from "./middleware/systemMetrics.ts";
+import { checkMongoHealth, checkRedisHealth } from "./lib/systemHealth.ts";
 import { userRouter } from "./routes/userRoutes.ts";
 import { authRouter } from "./routes/authRoutes.ts";
 import { serverRouter } from "./routes/serverRoutes.ts";
@@ -61,7 +62,7 @@ app.use(
 const isTest = process.env.NODE_ENV === "test";
 
 if (!isTest) {
-  app.use(metrics);
+  app.use(systemMetrics);
   app.use(helmetMiddleware);
   app.use(requestLogger);
 }
@@ -162,10 +163,24 @@ app.use("*", rateLimit);
 
 // ── Health / meta ─────────────────────────────────────────────────────────────
 app.get("/", (c) => c.text("TheSocial API"));
-app.get("/healthz", (c) =>
-  c.json({ status: "ok", uptime: process.uptime(), timestamp: Date.now() }),
-);
-app.get("/metrics", metricsEndpoint);
+// Actually checks Mongo + Redis rather than just confirming the process is
+// alive — Railway's own health check hits this, so a degraded dependency
+// now surfaces as a failing deploy/restart instead of a silently-broken
+// "ok". Bounded timeout (see systemHealth.ts) keeps this fast regardless.
+app.get("/healthz", async (c) => {
+  const [mongo, redisHealth] = await Promise.all([checkMongoHealth(), checkRedisHealth()]);
+  const healthy = mongo.healthy && redisHealth.healthy;
+  return c.json(
+    {
+      status: healthy ? "ok" : "degraded",
+      uptime: process.uptime(),
+      timestamp: Date.now(),
+      mongo,
+      redis: redisHealth,
+    },
+    healthy ? 200 : 503,
+  );
+});
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.onError((err, c) => {
