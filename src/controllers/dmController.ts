@@ -563,8 +563,33 @@ export const deleteMessage = async (c: Context) => {
     return c.json({ error: "Invalid ID format" }, 400);
   const io = c.get("io") as Server | undefined;
   try {
+    // Unlike every OTHER function in this file (getDm, hideConversation,
+    // deleteConversationForUser, clearConversation, markConversationRead,
+    // ...), this one never checked the caller is actually a participant of
+    // :conversationId, and never checked the message it's about to mutate
+    // even BELONGS to that conversation — meaning any authenticated user
+    // could push their own id onto ANY message's deletedFor (a "for-me"
+    // delete, silently succeeding with 200) regardless of whether they have
+    // any relationship to that conversation at all.
+    const conversation = await Conversation.findById(conversationId).select(
+      "participants"
+    );
+    if (!conversation) return c.json({ error: "Conversation not found" }, 404);
+    const isParticipant = conversation.participants?.some(
+      (p) => p?.toString() === userId?.toString()
+    );
+    if (!isParticipant) {
+      return c.json(
+        { error: "You are not a participant of this conversation" },
+        403
+      );
+    }
+
     const message = await Message.findById(messageId);
     if (!message) {
+      return c.json({ error: "Message not found" }, 404);
+    }
+    if (message.conversationId?.toString() !== conversationId) {
       return c.json({ error: "Message not found" }, 404);
     }
 
@@ -1771,8 +1796,29 @@ export const toggleReaction = async (c: Context) => {
   )
     return c.json({ error: "Invalid ID format" }, 400);
   try {
+    // channelId here is actually the conversationId (see this function's own
+    // header comment on the misleadingly-named shared field) — this
+    // endpoint had no participant check at all before this pass, meaning
+    // any authenticated user could toggle their own reaction on a DM
+    // message belonging to a conversation they have no part in, polluting
+    // its reactions for whoever the real participants are.
+    const conversation = await Conversation.findById(channelId).select("participants");
+    if (!conversation) return c.json({ error: "Conversation not found" }, 404);
+    const isConversationParticipant = conversation.participants?.some(
+      (p) => p?.toString() === userId?.toString()
+    );
+    if (!isConversationParticipant) {
+      return c.json(
+        { error: "You are not a participant of this conversation" },
+        403
+      );
+    }
+
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
+    if (message.conversationId?.toString() !== channelId) {
+      return c.json({ error: "Message not found" }, 404);
+    }
 
     const userIdString = userId.toString();
     const userObjectId = new (mongoose.Types.ObjectId as any)(userIdString);

@@ -910,7 +910,11 @@ export const getGroup = async (c: Context) => {
         "name email profilePic status lastSeen"
       );
       await group.populate("owner", "name email profilePic");
-      const messages = await Message.find({ groupId: group._id })
+      // Excludes messages this user has "for-me" deleted from their own
+      // view — same filter getGroupMessages applies; without it this
+      // embedded preview would leak a hidden message's content back to the
+      // very user who hid it.
+      const messages = await Message.find({ groupId: group._id, deletedFor: { $ne: userId } })
         .sort({ createdAt: -1 })
         .limit(50)
         .populate("sender", "name email profilePic")
@@ -1166,6 +1170,13 @@ const editGroupMessage = async (c: Context) => {
 
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
+    // groupId/messageId are independent route params — without this, editing
+    // your OWN message id would succeed even if that message actually lives
+    // in a different group/DM/channel than the one named in the URL,
+    // mutating it there and broadcasting/invalidating the WRONG room.
+    if (message.groupId?.toString() !== groupId) {
+      return c.json({ error: "Message not found" }, 404);
+    }
 
     if (message.sender.toString() !== userId) {
       return c.json({ error: "You can only edit your own messages" }, 403);
@@ -1222,6 +1233,17 @@ const deleteGroupMessage = async (c: Context) => {
 
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
+    // groupId and messageId are independent route params — without this,
+    // isOwner/isAdmin/isParticipant above (computed against the URL's
+    // groupId) would authorize acting on a message that belongs to a
+    // COMPLETELY UNRELATED group/DM/channel: anyone who owns/admins any
+    // group at all could hard-delete any message anywhere by pairing their
+    // own group's id with someone else's messageId. Message not belonging
+    // to this group is indistinguishable from it not existing, from this
+    // route's point of view.
+    if (message.groupId?.toString() !== groupId) {
+      return c.json({ error: "Message not found" }, 404);
+    }
 
     // "for-me" hides the message from just the acting user's own view — any
     // member may do this to any message, sender or not (mirrors dmController
@@ -1308,6 +1330,13 @@ const toggleGroupReaction = async (c: Context) => {
 
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
+    // groupId/messageId are independent route params — without this, a
+    // member of THIS group could toggle a reaction on a message that
+    // actually belongs to a different group/DM/channel entirely, polluting
+    // that message's reactions for whoever legitimately sees it there.
+    if (message.groupId?.toString() !== groupId) {
+      return c.json({ error: "Message not found" }, 404);
+    }
 
     const userObjectId = new mongoose.Types.ObjectId(authUserId);
 

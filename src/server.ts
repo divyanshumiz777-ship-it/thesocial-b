@@ -297,13 +297,19 @@ async function startServer() {
         // query too — but concurrently with the server lookup, so it costs
         // no added wall-clock time, just a bit of harmless extra DB load; an
         // explicitly accepted tradeoff for not special-casing the query away.
+        // The membership query's own promise is caught independently (never
+        // left to reject the shared Promise.all) — before this pass, the
+        // owner short-circuited BEFORE ServerMember.exists ever ran, so a
+        // transient failure there could never affect the owner; parallelizing
+        // the two must not silently take that immunity away by letting a
+        // ServerMember error fail the whole lookup and deny the owner too.
         const channel = await Channel.findById(channelId)
           .select("server transcriptionEnabled")
           .lean();
         if (!channel) return denied;
         const [server, isMember] = await Promise.all([
           DiscordServer.findById(channel.server).select("owner").lean(),
-          ServerMember.exists({ server: channel.server, user: userId }),
+          ServerMember.exists({ server: channel.server, user: userId }).catch(() => null),
         ]);
         if (!server) return denied;
         const transcriptionEnabled = !!channel.transcriptionEnabled;

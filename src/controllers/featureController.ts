@@ -17,7 +17,62 @@ import { Context } from "hono";
 import mongoose from "mongoose";
 import Message from "../models/Message.ts";
 import User from "../models/User.ts";
+import Conversation from "../models/Conversation.ts";
+import Group from "../models/Group.ts";
+import ServerMember from "../models/ServerMember.ts";
 import { Server } from "socket.io";
+
+// Shared by every generic, message-id-scoped endpoint in this file
+// (pin/unpin, list-pinned, mark-read, mark-read-bulk) — none of them checked
+// room membership at all before this pass: any authenticated user who
+// knew/guessed a messageId, or a groupId/conversationId for the list
+// endpoint, could act on a room they had nothing to do with (pin/unpin
+// someone else's private message, or forge a read receipt on a DM/group DM
+// they were never part of — the sender would then see a stranger's name
+// show up as having read it). Mirrors the SAME authorization model each room
+// type already enforces elsewhere in this codebase, rather than inventing a
+// new, stricter policy: a DM conversation and a group DM are private
+// (isParticipant is checked everywhere else in
+// dmController.ts/groupDmController.ts, for both reads and writes), so this
+// requires it here too; a server channel is NOT privacy-gated anywhere else
+// in this codebase (getMessagesByChannelId has no membership check at all —
+// only auth + block-list filtering — and createMessage only checks
+// banned/muted, never requiring ServerMember to exist), so this mirrors THAT
+// looser model instead of retrofitting a stricter one this app's channels
+// have never actually had.
+async function canAccessMessageRoom(
+  message: { conversationId?: mongoose.Types.ObjectId; groupId?: mongoose.Types.ObjectId; server?: mongoose.Types.ObjectId },
+  userId: string,
+): Promise<boolean> {
+  if (message.conversationId) {
+    const conversation = await Conversation.findById(message.conversationId).select("participants").lean();
+    if (!conversation) return false;
+    return (conversation.participants ?? []).some((p: any) => p?.toString() === userId);
+  }
+  if (message.groupId) {
+    const group = await Group.findById(message.groupId).select("participants owner").lean();
+    if (!group) return false;
+    return (
+      group.owner?.toString() === userId ||
+      (group.participants ?? []).some((p: any) => p?.toString() === userId)
+    );
+  }
+  if (message.server) {
+    const membership = await ServerMember.findOne(
+      { server: message.server, user: userId },
+      "banned muted",
+    ).lean();
+    if (membership?.banned?.isBanned) return false;
+    if (
+      membership?.muted?.isMuted &&
+      (!membership.muted.expiresAt || membership.muted.expiresAt > new Date())
+    ) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
 
 export const togglePinMessage = async (c: Context) => {
   const { messageId } = c.req.param();
@@ -31,6 +86,10 @@ export const togglePinMessage = async (c: Context) => {
   try {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
+
+    if (!(await canAccessMessageRoom(message, user.id))) {
+      return c.json({ error: "Not authorized to pin this message" }, 403);
+    }
 
     message.pinned = !message.pinned;
     if (message.pinned) {
@@ -80,6 +139,7 @@ export const togglePinMessage = async (c: Context) => {
 
 export const getPinnedMessages = async (c: Context) => {
   const { channelId, conversationId, groupId } = c.req.query();
+  const user = c.get("user");
 
   if (!channelId && !conversationId && !groupId) {
     return c.json(
@@ -90,14 +150,34 @@ export const getPinnedMessages = async (c: Context) => {
 
   try {
     let query: any = { pinned: true };
+    // channelId gets no membership check here — same as
+    // getMessagesByChannelId's own read path, which has never required one
+    // (only auth + block-list filtering); see canAccessMessageRoom's comment
+    // above for why conversation/group are gated but channel isn't.
     if (channelId && mongoose.Types.ObjectId.isValid(channelId)) {
       query.channel = channelId;
     } else if (
       conversationId &&
       mongoose.Types.ObjectId.isValid(conversationId)
     ) {
+      const conversation = await Conversation.findById(conversationId).select("participants").lean();
+      if (!conversation) return c.json({ error: "Conversation not found" }, 404);
+      const isParticipant = (conversation.participants ?? []).some(
+        (p: any) => p?.toString() === user.id,
+      );
+      if (!isParticipant) {
+        return c.json({ error: "Not authorized to view this conversation's pins" }, 403);
+      }
       query.conversationId = conversationId;
     } else if (groupId && mongoose.Types.ObjectId.isValid(groupId)) {
+      const group = await Group.findById(groupId).select("participants owner").lean();
+      if (!group) return c.json({ error: "Group not found" }, 404);
+      const isMember =
+        group.owner?.toString() === user.id ||
+        (group.participants ?? []).some((p: any) => p?.toString() === user.id);
+      if (!isMember) {
+        return c.json({ error: "Not authorized to view this group's pins" }, 403);
+      }
       query.groupId = groupId;
     } else {
       return c.json({ error: "Invalid ID format" }, 400);
@@ -130,6 +210,10 @@ export const markMessageAsRead = async (c: Context) => {
     if (!message) return c.json({ error: "Message not found" }, 404);
 
     const userId = user.id; // FIXED: was user._id
+
+    if (!(await canAccessMessageRoom(message, userId))) {
+      return c.json({ error: "Not authorized to mark this message read" }, 403);
+    }
 
     const alreadyRead = message.readBy?.some(
       (r) => r.user.toString() === userId,
@@ -185,7 +269,16 @@ export const markMessagesAsRead = async (c: Context) => {
     const validIds = messageIds.filter((id) =>
       mongoose.Types.ObjectId.isValid(id),
     );
-    const messages = await Message.find({ _id: { $in: validIds } });
+    const candidates = await Message.find({ _id: { $in: validIds } });
+    // Silently drop any message this caller isn't authorized to touch,
+    // rather than failing the whole batch over one bad id — a legitimate
+    // client only ever batches ids from rooms it actually has access to, so
+    // this only ever matters for a forged/mixed-in id, and dropping it
+    // quietly avoids leaking whether that message exists at all.
+    const authorizationChecks = await Promise.all(
+      candidates.map((message) => canAccessMessageRoom(message, userId)),
+    );
+    const messages = candidates.filter((_, i) => authorizationChecks[i]);
 
     // Load reader info once
     const readerDoc = await User.findById(userId).select("name profilePic");

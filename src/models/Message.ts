@@ -200,29 +200,58 @@ const MessageSchema = new Schema<IMessage>(
 // concurrent identical retries) — a real duplicate insert attempt fails
 // with E11000 instead of creating a second message, and the controller
 // treats that failure as "someone else already won this exact retry" (see
-// its own comment). Sparse: only DM sends ever populate clientMessageId, so
-// every other message type (channel, group, call-log, ...) is excluded from
-// the uniqueness constraint entirely rather than colliding on a shared
-// `undefined`.
+// its own comment).
+//
+// partialFilterExpression, NOT `sparse: true` — a compound sparse index
+// only skips a document when ALL of its indexed fields are missing, not
+// when just one is. `sender` is `required: true` on this schema, so it is
+// NEVER missing; a plain `sparse: true` here would therefore index EVERY
+// message (clientMessageId standing in as literal `null` when absent), and
+// any two messages from the same sender in the same conversation that both
+// lack a clientMessageId — which describes every message sent from a
+// client that has never set this field, e.g. the web app today — would
+// collide as duplicate keys and fail to insert. A partial index actually
+// restricts the index to documents matching the filter, giving the "only
+// constrain a real idempotency key" semantics these indexes need.
+//
+// The filter ALSO requires the index's own scoping field (conversationId/
+// groupId/channel) to exist, not just clientMessageId — without that, a
+// message with neither field set (e.g. a group message, which never sets
+// conversationId) still gets an index entry on THIS index with that field
+// standing in as `null`, same root problem as the sparse bug above, just
+// one level down: two messages in two DIFFERENT groups (both leaving
+// conversationId AND channel unset) from the same sender, sharing whatever
+// clientMessageId value a client happens to submit (fully client-supplied,
+// e.g. mobile/src/hooks/useGroupMessages.ts's tempId — nothing stops a
+// client from ever reusing one), would collide on this DM-scoped index even
+// though neither message has anything to do with a DM.
 MessageSchema.index(
   { conversationId: 1, sender: 1, clientMessageId: 1 },
-  { unique: true, sparse: true }
+  {
+    unique: true,
+    partialFilterExpression: { conversationId: { $exists: true }, clientMessageId: { $exists: true } },
+  }
 );
 // Same idempotency mechanism as the DM index directly above, for the other
 // two message surfaces — group DM sends and channel sends. The
 // controller-side dedupe logic for these is implemented separately; these
-// are schema-level indexes only, sparse for the same reason: only a send
-// that actually supplies a clientMessageId is subject to the uniqueness
-// constraint at all, so every message that never sets it (call-log entries,
-// system messages, older sends predating this field, ...) never collides on
-// a shared `undefined`.
+// are schema-level indexes only. Same partialFilterExpression reasoning as
+// above — only a message that actually supplies a clientMessageId, AND
+// actually belongs to this index's own room type, is subject to the
+// uniqueness constraint at all.
 MessageSchema.index(
   { groupId: 1, sender: 1, clientMessageId: 1 },
-  { unique: true, sparse: true }
+  {
+    unique: true,
+    partialFilterExpression: { groupId: { $exists: true }, clientMessageId: { $exists: true } },
+  }
 );
 MessageSchema.index(
   { channel: 1, sender: 1, clientMessageId: 1 },
-  { unique: true, sparse: true }
+  {
+    unique: true,
+    partialFilterExpression: { channel: { $exists: true }, clientMessageId: { $exists: true } },
+  }
 );
 MessageSchema.index({ server: 1, channel: 1, thread: 1, createdAt: -1 });
 MessageSchema.index({ plainText: "text", content: "text" });
