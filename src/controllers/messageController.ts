@@ -30,6 +30,24 @@ import { forwardDeleteContent, isChatServiceEnabled } from "../lib/chatServiceCl
 // available regardless of age.
 const DELETE_FOR_EVERYONE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+// Shared by createMessage's two idempotent-retry paths (the pre-check, and
+// the duplicate-key race it can still lose to — see both call sites' own
+// comments below) so the response shape is identical either way to a normal
+// first-time 201. Populate chain matches createMessage's own success-path
+// populate exactly (see the `populatedMessage` lookup further down).
+async function findByClientMessageId(
+  channelId: string,
+  senderId: string,
+  clientMessageId: string
+) {
+  return Message.findOne({ channel: channelId, sender: senderId, clientMessageId })
+    .populate("sender", "name profilePic email")
+    .populate({
+      path: "replyTo",
+      populate: { path: "sender", select: "name profilePic email" },
+    });
+}
+
 export const searchMessages = async (c: Context) => {
   const { channelId } = c.req.param();
   const query = c.req.query("q") || "";
@@ -68,6 +86,7 @@ export const createMessage = async (c: Context) => {
     let replyToId: string | null = null;
     let gifUrl: string | null = null;
     let stickerUrl: string | null = null;
+    let clientMessageId: string | null = null;
     const attachmentFiles: File[] = [];
 
     if (contentType.includes("application/json")) {
@@ -78,6 +97,7 @@ export const createMessage = async (c: Context) => {
       replyToId = body.replyTo ?? null;
       gifUrl = body.gifUrl ?? null;
       stickerUrl = body.stickerUrl ?? null;
+      clientMessageId = body.clientMessageId ?? null;
     } else {
       const formData = await c.req.formData();
       content = (formData.get("content") as string) ?? "";
@@ -87,6 +107,7 @@ export const createMessage = async (c: Context) => {
       replyToId = (formData.get("replyTo") as string | null) ?? null;
       gifUrl = (formData.get("gifUrl") as string | null) ?? null;
       stickerUrl = (formData.get("stickerUrl") as string | null) ?? null;
+      clientMessageId = (formData.get("clientMessageId") as string | null) ?? null;
 
       let index = 0;
       while (formData.get(`attachment${index}`)) {
@@ -107,6 +128,24 @@ export const createMessage = async (c: Context) => {
       !mongoose.Types.ObjectId.isValid(serverId)
     ) {
       return c.json({ error: "Invalid ID format" }, 400);
+    }
+
+    // A client retrying a send whose OWN response it never received (a
+    // client-side timeout/abort on a request that had actually already
+    // succeeded — see dmController.ts's createDm for the identical,
+    // confirmed real-world occurrence this mirrors) would otherwise post the
+    // same message twice. Returning the already-created message instead —
+    // same shape, 200 instead of 201 — makes this endpoint safe to retry.
+    // Deliberately placed here, before the Cloudinary upload loop below: a
+    // retried multipart send (with an attachment) that hits this pre-check
+    // skips re-uploading the file entirely, not just re-creating the
+    // message — see sendChannelMessageWithAttachment's own comment
+    // (serverApi.ts) for why that's a strict improvement over group DM's
+    // equivalent gap, where the upload happens inline during body-parsing,
+    // before any idempotency check could ever run.
+    if (clientMessageId) {
+      const existing = await findByClientMessageId(channelId, senderId, clientMessageId);
+      if (existing) return c.json(existing, 200);
     }
 
     const membership = await ServerMember.findOne(
@@ -177,20 +216,37 @@ export const createMessage = async (c: Context) => {
       }
     }
 
-    const newMessage = await Message.create({
-      channel: channelId,
-      server: serverId,
-      sender: senderId,
-      content,
-      formattedContent: hasMarkdown(content)
-        ? markdownToHtml(content)
-        : content,
-      plainText: markdownToPlainText(content),
-      mentions,
-      attachments,
-      attachmentsV2,
-      replyTo: replyToId || undefined,
-    });
+    let newMessage;
+    try {
+      newMessage = await Message.create({
+        channel: channelId,
+        server: serverId,
+        sender: senderId,
+        content,
+        formattedContent: hasMarkdown(content)
+          ? markdownToHtml(content)
+          : content,
+        plainText: markdownToPlainText(content),
+        mentions,
+        attachments,
+        attachmentsV2,
+        replyTo: replyToId || undefined,
+        ...(clientMessageId ? { clientMessageId } : {}),
+      });
+    } catch (err) {
+      // Lost a race against a concurrent identical retry (both passed the
+      // pre-check above before either had inserted) — the Message model's
+      // own sparse unique index on {channel, sender, clientMessageId} is
+      // what actually makes this safe: whichever insert lands second fails
+      // with E11000 instead of creating a duplicate. The OTHER one already
+      // did everything (socket emit, webhook, mention notifications) a
+      // genuine new message needs, so just return what it created.
+      if (clientMessageId && (err as { code?: number })?.code === 11000) {
+        const existing = await findByClientMessageId(channelId, senderId, clientMessageId);
+        if (existing) return c.json(existing, 200);
+      }
+      throw err;
+    }
 
     const populatedMessage = await Message.findById(newMessage._id)
       .populate("sender", "name profilePic email")

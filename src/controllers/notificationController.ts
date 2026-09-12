@@ -24,9 +24,16 @@ export const createNotification = async (data: {
     // Part 9: suppress notifications between users with a block relationship
     // (either direction). Central choke point — covers mentions, friend adds,
     // server events, etc.
+    //
+    // Also folds in the global per-user mute (User.mutedUsers, a separate
+    // top-level field from block — see User.ts's own comment) — but mute is
+    // intentionally ONE-DIRECTIONAL, unlike block: only the RECIPIENT's own
+    // mutedUsers list is checked against the sender. There is deliberately no
+    // reverse check here — muting someone must never suppress notifications
+    // going TO them, only notifications coming FROM them.
     if (data.sender && data.recipient && data.sender !== data.recipient) {
       const [recipient, sender] = await Promise.all([
-        User.findById(data.recipient).select("blockedUsers"),
+        User.findById(data.recipient).select("blockedUsers mutedUsers"),
         User.findById(data.sender).select("blockedUsers"),
       ]);
       const recipientBlockedSender = recipient?.blockedUsers?.some(
@@ -35,7 +42,10 @@ export const createNotification = async (data: {
       const senderBlockedRecipient = sender?.blockedUsers?.some(
         (u) => u?.toString() === data.recipient
       );
-      if (recipientBlockedSender || senderBlockedRecipient) {
+      const recipientMutedSender = recipient?.mutedUsers?.some(
+        (u) => u?.toString() === data.sender
+      );
+      if (recipientBlockedSender || senderBlockedRecipient || recipientMutedSender) {
         return null;
       }
     }

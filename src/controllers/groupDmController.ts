@@ -125,6 +125,25 @@ function getUserIdFromJWT(decoded: any): string | null {
   return decoded?.userId || decoded?.id || null;
 }
 
+// Shared by sendMessage's two idempotent-retry paths (the pre-check, and the
+// duplicate-key race it can still lose to — see both call sites' own
+// comments below) — mirrors dmController.ts's findByClientMessageId exactly,
+// keyed on groupId instead of conversationId. Populate calls match whatever
+// sendMessage's own success response already populates, so a retried send
+// gets back the identical shape as a fresh 201 would have.
+async function findByClientMessageId(
+  groupId: string,
+  senderId: string,
+  clientMessageId: string
+) {
+  return Message.findOne({ groupId, sender: senderId, clientMessageId })
+    .populate("sender", "name email profilePic")
+    .populate({
+      path: "replyTo",
+      populate: { path: "sender", select: "name profilePic email" },
+    });
+}
+
 async function isUserAuthorized(
   groupId: string,
   userId: string
@@ -918,6 +937,9 @@ export const sendMessage = async (c: Context) => {
 
     let content = "";
     let replyTo: string | null = null;
+    // Idempotency key (see findByClientMessageId's own comment below) — read
+    // from BOTH parsing branches further down, alongside content/replyTo.
+    let clientMessageId: string | undefined;
     // Attachments are stored as attachmentsV2 (the shape the whole app
     // renders — see MessageBubble/RichMessageDisplay and dmController). The
     // group send path previously wrote a single `fileUrl` string, which no
@@ -945,6 +967,7 @@ export const sendMessage = async (c: Context) => {
       const body = await c.req.parseBody({ all: true });
       content = (body.content as string) || "";
       replyTo = (body.replyTo as string) || null;
+      clientMessageId = (body.clientMessageId as string) || undefined;
 
       const raw = body.attachments;
       const files = Array.isArray(raw) ? raw : raw ? [raw] : [];
@@ -977,6 +1000,7 @@ export const sendMessage = async (c: Context) => {
         const body = await c.req.json();
         content = body.content || "";
         replyTo = body.replyTo || null;
+        clientMessageId = body.clientMessageId || undefined;
         addUrlAttachments(body);
       } catch {
         const body = await c.req.parseBody({ all: true });
@@ -1011,19 +1035,53 @@ export const sendMessage = async (c: Context) => {
       return c.json({ error: "This group is disabled" }, 403);
     }
 
-    const message = new Message({
-      sender: new mongoose.Types.ObjectId(userId as string),
-      content: content || "",
-      attachmentsV2,
-      groupId: new mongoose.Types.ObjectId(groupId),
-      createdAt: new Date(),
-      replyTo:
-        replyTo && mongoose.Types.ObjectId.isValid(replyTo)
-          ? new mongoose.Types.ObjectId(replyTo)
-          : undefined,
-    });
+    // A client retrying a send whose OWN response it never received (a
+    // client-side timeout/abort on a request that had actually already
+    // succeeded server-side) would otherwise post the same message twice —
+    // mirrors dmController.ts's createDm pre-check exactly, keyed on groupId.
+    if (clientMessageId) {
+      const existing = await findByClientMessageId(groupId, userId, clientMessageId);
+      if (existing) return c.json({ success: true, message: existing.toObject() }, 200);
+    }
 
-    await message.save();
+    let message;
+    try {
+      message = new Message({
+        sender: new mongoose.Types.ObjectId(userId as string),
+        content: content || "",
+        attachmentsV2,
+        groupId: new mongoose.Types.ObjectId(groupId),
+        createdAt: new Date(),
+        replyTo:
+          replyTo && mongoose.Types.ObjectId.isValid(replyTo)
+            ? new mongoose.Types.ObjectId(replyTo)
+            : undefined,
+        ...(clientMessageId ? { clientMessageId } : {}),
+      });
+
+      await message.save();
+    } catch (err) {
+      // Lost a race against a concurrent identical retry (both passed the
+      // pre-check above before either had inserted) — the Message model's
+      // sparse unique index on {groupId, sender, clientMessageId} is what
+      // actually makes this safe: whichever insert lands second fails with
+      // E11000 instead of creating a duplicate. The OTHER one already did
+      // everything (socket emit, notification) a genuine new message needs,
+      // so just return what it created.
+      //
+      // Known limitation, not fixed here: the multipart branch above uploads
+      // any file attachments BEFORE this point, so a retried multipart send
+      // that hits this race would still re-upload the raw file even though
+      // the resulting message correctly dedupes below — this mobile client
+      // never actually sends multipart to this endpoint (attachments are
+      // pre-uploaded via messageActionsApi.ts's uploadMessageAttachment), so
+      // this is a real but unexercised gap.
+      if (clientMessageId && (err as { code?: number })?.code === 11000) {
+        const existing = await findByClientMessageId(groupId, userId, clientMessageId);
+        if (existing) return c.json({ success: true, message: existing.toObject() }, 200);
+      }
+      throw err;
+    }
 
     await message.populate("sender", "name email profilePic");
     await message.populate({
@@ -1143,6 +1201,11 @@ const deleteGroupMessage = async (c: Context) => {
     const userId = getUserIdFromJWT(decoded);
     if (!userId) return c.json({ error: "Invalid token payload" }, 401);
     const { groupId, messageId } = c.req.param();
+    // Same DELETE-with-JSON-body pattern messageController.ts's channel
+    // deleteMessage already uses — a body-less DELETE (every caller before
+    // this pass) parses to {} and falls through to the unchanged hard-delete
+    // path below.
+    const { deleteType } = await c.req.json().catch(() => ({}));
 
     const group = await Group.findById(groupId);
     if (!group) return c.json({ error: "Group not found" }, 404);
@@ -1159,6 +1222,25 @@ const deleteGroupMessage = async (c: Context) => {
 
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
+
+    // "for-me" hides the message from just the acting user's own view — any
+    // member may do this to any message, sender or not (mirrors dmController
+    // .ts's/messageController.ts's identical "for-me" semantics) — so this
+    // branches BEFORE the self-delete/owner/admin authorization check below,
+    // which only ever gated the hard-delete ("for-everyone", the only mode
+    // that existed before this pass) path.
+    if (deleteType === "for-me") {
+      if (!message.deletedFor) message.deletedFor = [];
+      if (!message.deletedFor.some((id: any) => id.toString() === userId)) {
+        message.deletedFor.push(new mongoose.Types.ObjectId(userId));
+      }
+      await message.save();
+
+      const io = getIoInstance();
+      io.to(userId).emit("messageDeletedForMe", { messageId, type: "for-me" });
+
+      return c.json({ success: true, messageId }, 200);
+    }
 
     const isSelfDelete = message.sender.toString() === userId;
     if (!isSelfDelete && !isOwner && !isAdmin) {
@@ -1180,9 +1262,10 @@ const deleteGroupMessage = async (c: Context) => {
 
     await Message.findByIdAndDelete(messageId);
 
-    // Unlike channel/DM messages, group-DM message deletes have no
-    // "for-me"/"for-everyone" split — this is always a genuine hard delete,
-    // so unlike those, there's no chunker-quirk risk in tombstoning it here.
+    // This path (deleteType absent or "for-everyone") is always a genuine
+    // hard delete — a real removal, not a tombstone-in-place like DM/
+    // channel's "for-everyone" — so unlike those, there's no chunker-quirk
+    // risk in forwarding a delete here.
     if (isChatServiceEnabled()) {
       void forwardDeleteContent("source", messageId, "message");
     }
@@ -1386,7 +1469,13 @@ export const getGroupMessages = async (c: Context) => {
       return c.json({ error: "Not a member of this group" }, 403);
     }
 
-    const query: Record<string, unknown> = { groupId: group._id };
+    // Excludes messages this user has "for-me" deleted from their own view —
+    // mirrors dmController.ts's getDm / messageController.ts's
+    // getMessagesByChannelId, which already apply this same filter.
+    const query: Record<string, unknown> = {
+      groupId: group._id,
+      deletedFor: { $ne: userId },
+    };
     if (before && mongoose.Types.ObjectId.isValid(before)) {
       query._id = { $lt: new mongoose.Types.ObjectId(before) };
     }

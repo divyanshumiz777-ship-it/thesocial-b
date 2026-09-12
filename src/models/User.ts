@@ -36,6 +36,13 @@ interface IUser extends Document {
   dms?: Types.ObjectId[];
   friends?: Types.ObjectId[];
   blockedUsers?: Types.ObjectId[];
+  // Global, per-user "mute" — a brand new, separate, top-level array field,
+  // NOT the same as settings.mutedConversations below (that one is
+  // per-conversation and stays untouched by this). Muting someone only
+  // suppresses notifications FROM them (see notificationController.ts's
+  // createNotification) — it never affects message delivery, conversation
+  // visibility, or friendship, unlike blockedUsers above.
+  mutedUsers?: Types.ObjectId[];
   provider: string;
   providerAccountId?: string;
   resetPasswordToken?: string;
@@ -140,6 +147,7 @@ const UserSchema = new Schema<IUser>({
   dms: [{ type: Schema.Types.ObjectId, ref: "DirectMessage" }],
   friends: [{ type: Schema.Types.ObjectId, ref: "User" }],
   blockedUsers: [{ type: Schema.Types.ObjectId, ref: "User" }],
+  mutedUsers: [{ type: Schema.Types.ObjectId, ref: "User" }],
   lastSeen: { type: Date, default: Date.now },
   lastDisconnectedAt: { type: Date },
   catchMeUpSeenAt: { type: Date },

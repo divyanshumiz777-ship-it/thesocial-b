@@ -43,8 +43,14 @@ export const togglePinMessage = async (c: Context) => {
     await message.save();
 
     if (io) {
+      // Group DM fallback added alongside this pass's group-DM pin support
+      // (see contracts/groupDm.ts / mobile groupDmApi.ts) — previously this
+      // resolved to undefined for a group message, so a pin toggle there
+      // saved fine but never broadcast to the room at all.
       const roomId =
-        message.conversationId?.toString() ?? message.channel?.toString();
+        message.conversationId?.toString() ??
+        message.channel?.toString() ??
+        message.groupId?.toString();
       if (roomId) {
         io.to(roomId).emit("message:pinned", {
           messageId: message._id,
@@ -73,10 +79,13 @@ export const togglePinMessage = async (c: Context) => {
 };
 
 export const getPinnedMessages = async (c: Context) => {
-  const { channelId, conversationId } = c.req.query();
+  const { channelId, conversationId, groupId } = c.req.query();
 
-  if (!channelId && !conversationId) {
-    return c.json({ error: "Channel ID or Conversation ID is required" }, 400);
+  if (!channelId && !conversationId && !groupId) {
+    return c.json(
+      { error: "Channel ID, Conversation ID, or Group ID is required" },
+      400,
+    );
   }
 
   try {
@@ -88,6 +97,8 @@ export const getPinnedMessages = async (c: Context) => {
       mongoose.Types.ObjectId.isValid(conversationId)
     ) {
       query.conversationId = conversationId;
+    } else if (groupId && mongoose.Types.ObjectId.isValid(groupId)) {
+      query.groupId = groupId;
     } else {
       return c.json({ error: "Invalid ID format" }, 400);
     }

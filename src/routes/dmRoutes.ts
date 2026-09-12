@@ -16,6 +16,9 @@ import {
   blockUser,
   unblockUser,
   getBlockedUsers,
+  muteUser,
+  unmuteUser,
+  getMutedUsers,
   markConversationRead,
   markConversationDelivered,
   getConvStatus,
@@ -89,4 +92,7 @@ dmRouter.put("/theme/:conversationId", authMiddleware, setConversationTheme);
 dmRouter.post("/block-user/:userId", authMiddleware, blockUser);
 dmRouter.delete("/unblock-user/:userId", authMiddleware, unblockUser);
 dmRouter.get("/blocked-users", authMiddleware, getBlockedUsers);
+dmRouter.post("/mute-user/:userId", authMiddleware, muteUser);
+dmRouter.delete("/unmute-user/:userId", authMiddleware, unmuteUser);
+dmRouter.get("/muted-users", authMiddleware, getMutedUsers);
 dmRouter.route("/groups", groupDmController);

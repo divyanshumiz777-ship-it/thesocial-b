@@ -21,14 +21,26 @@ import {
  *
  * The actual WebRTC mesh reuses the EXISTING webrtc:offer/webrtc:answer/
  * webrtc:ice-candidate relay handlers in server.ts unchanged (they only
- * check room membership, not what kind of room it is), and the exact same
+ * check room membership, not what kind of room it is), and (once the
+ * joiner's own media is ready — see groupCallMediaReady below) the same
  * join-broadcast shape the community voice-channel webrtc:join handler uses
- * (`socket.join(roomId)` then `io.to(roomId).emit("webrtc:user-joined",
- * {userId})`) — that shape is already proven correct for N-way meshes (a
- * new joiner bootstraps its connections by RECEIVING offers the existing
- * members create in response to seeing this event, not the other way
- * around), so this deliberately mirrors it exactly rather than reinventing
- * join semantics.
+ * (`io.to(roomId).emit("webrtc:user-joined", {userId})`) — that shape is
+ * already proven correct for N-way meshes (a new joiner bootstraps its
+ * connections by RECEIVING offers the existing members create in response
+ * to seeing this event, not the other way around).
+ *
+ * Unlike the community voice channel (where the client only ever calls
+ * webrtc:join once it's already about to acquire media), joining/starting a
+ * group call here happens BEFORE the client's getUserMedia()/useWebRTC
+ * listener registration — starting media only once the user has explicit
+ * intent is what fixes the group-call media-acquisition latency issue (see
+ * useGroupCall.ts's wantsMedia). That reordering means the join step
+ * (socket.join + participant tracking) and the webrtc:user-joined broadcast
+ * can no longer safely happen together: broadcasting immediately on join
+ * risks an existing member's resulting webrtc:offer arriving before this
+ * socket is listening for it (Socket.IO does not replay missed events),
+ * silently dropping that peer connection until a manual rejoin. So the two
+ * are split — join here, broadcast only once the joiner confirms readiness.
  */
 
 function notifyGroupMembers(io: Server, userIds: unknown[], event: string, payload: unknown): void {
@@ -114,11 +126,16 @@ async function joinExistingCall(
     await existing.save();
   }
   socket.join(groupCallId);
-  // Mirrors the community voice-channel webrtc:join broadcast shape exactly
-  // — see this file's header comment for why that shape (not a "tell the
-  // new joiner about everyone" broadcast) is what makes an N-way mesh
-  // actually converge.
-  io.to(groupCallId).emit("webrtc:user-joined", { userId });
+  // Deliberately NOT broadcasting webrtc:user-joined here — see this file's
+  // header comment and groupCallMediaReady below. This joiner's own
+  // getUserMedia()/useWebRTC listener registration hasn't necessarily
+  // happened yet at this point (it's still ahead, gated behind this ack),
+  // so an existing member's resulting webrtc:offer sent in immediate
+  // response to a join-time broadcast could arrive before this socket is
+  // listening for it — Socket.IO does not replay missed events, so that
+  // silently dropped the new peer connection until a manual rejoin. The
+  // broadcast now happens only once the joiner itself confirms its local
+  // media is ready (group-call:media-ready).
   socket.emit("group-call:joined", {
     groupCallId,
     groupId: existing.groupId.toString(),
@@ -298,6 +315,28 @@ async function removeParticipant(io: Server, groupCallId: string, userId: string
   } catch (err) {
     console.error("removeParticipant (group call) error:", err);
   }
+}
+
+// Emitted by the JOINER (useGroupCall.ts) once its OWN local media
+// (getUserMedia) is actually ready, replacing the webrtc:user-joined
+// broadcast that used to fire immediately on socket.join above — see this
+// file's header comment for why that immediate broadcast was a correctness
+// bug. Unlike DM calls' mediaReady (dmCallService.ts), this does NOT need a
+// Redis both-ready rendezvous: DM must synchronize two DIFFERENT users'
+// sockets, possibly on different backend instances, whereas here it's a
+// single user's own already-connected socket confirming its own readiness —
+// a plain synchronous in-memory room-membership check, mirroring the same
+// idiom server.ts's webrtc:offer/answer/ice-candidate relays already use
+// (`socket.rooms.has(...)`) rather than trusting the payload.
+export function groupCallMediaReady(
+  io: Server,
+  socket: Socket,
+  userId: string,
+  data: { groupCallId?: string },
+): void {
+  const groupCallId = data?.groupCallId;
+  if (!groupCallId || !socket.rooms.has(groupCallId)) return;
+  io.to(groupCallId).emit("webrtc:user-joined", { userId });
 }
 
 export async function leaveGroupCall(

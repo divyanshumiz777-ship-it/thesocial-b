@@ -45,9 +45,26 @@ export const emitConversationActivity = (
 // affects anyone else, so it stays available regardless of age.
 const DELETE_FOR_EVERYONE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+// Shared by createDm's two idempotent-retry paths (the pre-check, and the
+// duplicate-key race it can still lose to — see both call sites' own
+// comments) so the response shape is identical either way to a normal
+// first-time 201.
+async function findByClientMessageId(
+  conversationId: mongoose.Types.ObjectId,
+  senderId: string,
+  clientMessageId: string
+) {
+  return Message.findOne({ conversationId, sender: senderId, clientMessageId })
+    .populate({ path: "sender", select: "name profilePic email about" })
+    .populate({
+      path: "replyTo",
+      populate: { path: "sender", select: "name profilePic email" },
+    });
+}
+
 export const createDm = async (c: Context) => {
   const senderId = c.get("user").id;
-  const { receiverId, content, attachments, gifUrl, stickerUrl, replyTo } =
+  const { receiverId, content, attachments, gifUrl, stickerUrl, replyTo, clientMessageId } =
     await c.req.json();
   const io = c.get("io") as Server | undefined;
 
@@ -123,6 +140,19 @@ export const createDm = async (c: Context) => {
       conversation = await Conversation.create({ participants });
     }
 
+    // A client retrying a send whose OWN response it never received (a
+    // client-side timeout/abort on a request that had actually already
+    // succeeded — a real, confirmed occurrence: the mobile client's fetch
+    // layer can spuriously time out or abort well after the server has
+    // already committed the write) would otherwise post the same message
+    // twice. Returning the already-created message instead — same shape,
+    // 200 instead of 201 — makes this endpoint safe to retry, which is the
+    // whole reason retries were disabled client-side before this existed.
+    if (clientMessageId) {
+      const existing = await findByClientMessageId(conversation._id, senderId, clientMessageId);
+      if (existing) return c.json(existing, 200);
+    }
+
     // Build the typed attachment list. GIFs/stickers arrive as URLs (from the
     // picker); files arrive as already-uploaded metadata (from /attachments/upload).
     const attachmentsV2: Array<Record<string, unknown>> = [];
@@ -142,14 +172,31 @@ export const createDm = async (c: Context) => {
       }
     }
 
-    const newMessage = await Message.create({
-      content: content ?? "",
-      sender: senderId,
-      conversationId: conversation._id,
-      attachments: attachmentsV2.map((a) => a.url as string),
-      attachmentsV2,
-      replyTo: replyTo || undefined,
-    });
+    let newMessage;
+    try {
+      newMessage = await Message.create({
+        content: content ?? "",
+        sender: senderId,
+        conversationId: conversation._id,
+        attachments: attachmentsV2.map((a) => a.url as string),
+        attachmentsV2,
+        replyTo: replyTo || undefined,
+        ...(clientMessageId ? { clientMessageId } : {}),
+      });
+    } catch (err) {
+      // Lost a race against a concurrent identical retry (both passed the
+      // pre-check above before either had inserted) — the Message model's
+      // own sparse unique index on {conversationId, sender, clientMessageId}
+      // is what actually makes this safe: whichever insert lands second
+      // fails with E11000 instead of creating a duplicate. The OTHER one
+      // already did everything (socket emit, notification) that a genuine
+      // new message needs, so just return what it created.
+      if (clientMessageId && (err as { code?: number })?.code === 11000) {
+        const existing = await findByClientMessageId(conversation._id, senderId, clientMessageId);
+        if (existing) return c.json(existing, 200);
+      }
+      throw err;
+    }
 
     // Keep the conversation's denormalized message list current and bump
     // updatedAt. Sending a message also un-hides / un-deletes the conversation
@@ -1164,6 +1211,181 @@ export const getBlockedUsers = async (c: Context) => {
   } catch (error) {
     console.error("Error fetching blocked users:", error);
     return c.json({ error: "Failed to fetch blocked users" }, 500);
+  }
+};
+
+/**
+ * Global, per-user mute — a brand new, separate, top-level User.mutedUsers
+ * array field (NOT settings.mutedConversations, which is per-conversation and
+ * stays completely untouched by this). Mutes only ever suppress notifications
+ * FROM the muted user (see notificationController.ts's createNotification) —
+ * never message delivery or conversation state, so unlike blockUser/
+ * unblockUser above there is no Conversation touching and no
+ * invalidateAfterFollowChange call (nothing cached keys off a mute
+ * relationship the way follow/profile reads key off a block one).
+ */
+export const muteUser = async (c: Context) => {
+  const { userId } = c.req.param();
+  const currentUser = c.get("user");
+  const io = c.get("io") as Server | undefined;
+
+  if (!mongoose.Types.ObjectId.isValid(userId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  if (userId === currentUser.id) {
+    return c.json({ error: "You cannot mute yourself" }, 400);
+  }
+
+  try {
+    const userToMute = await User.findById(userId).select(
+      "name email profilePic about"
+    );
+    if (!userToMute) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const user = await User.findById(currentUser.id);
+    if (!user) {
+      return c.json({ error: "Current user not found" }, 404);
+    }
+
+    user.mutedUsers ??= [];
+
+    const alreadyMuted = user.mutedUsers.some(
+      (u) => u?.toString() === userId.toString()
+    );
+
+    if (alreadyMuted) {
+      return c.json({ message: "User is already muted" }, 200);
+    }
+
+    user.mutedUsers.push(mongoose.Types.ObjectId.createFromHexString(userId));
+    await user.save();
+
+    if (io) {
+      // Multi-device sync only — mute is one-directional and never visible
+      // to the muted user, so this is scoped to the acting user's own room.
+      io.to(currentUser.id).emit("user:muted", {
+        mutedBy: currentUser.id,
+        mutedUser: userId,
+      });
+    }
+
+    return c.json(
+      {
+        message: "User muted successfully",
+        mutedUser: {
+          _id: userToMute._id,
+          name: userToMute.name,
+          email: userToMute.email,
+          profilePic: userToMute.profilePic,
+          about: userToMute.about,
+        },
+      },
+      200
+    );
+  } catch (error) {
+    console.error("Error muting user:", error);
+    return c.json({ error: "Failed to mute user" }, 500);
+  }
+};
+
+export const unmuteUser = async (c: Context) => {
+  const { userId } = c.req.param();
+  const currentUser = c.get("user");
+  const io = c.get("io") as Server | undefined;
+
+  if (!mongoose.Types.ObjectId.isValid(userId))
+    return c.json({ error: "Invalid ID format" }, 400);
+
+  try {
+    const userToUnmute = await User.findById(userId).select(
+      "name email profilePic about"
+    );
+    if (!userToUnmute) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const user = await User.findById(currentUser.id);
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    if (!user.mutedUsers || user.mutedUsers.length === 0) {
+      return c.json({ message: "User is not muted" }, 200);
+    }
+
+    const isMuted = user.mutedUsers.some(
+      (u) => u.toString() === userId.toString()
+    );
+
+    if (!isMuted) {
+      return c.json({ message: "User is not muted" }, 200);
+    }
+
+    user.mutedUsers = user.mutedUsers.filter(
+      (u) => u.toString() !== userId.toString()
+    );
+    await user.save();
+
+    if (io) {
+      io.to(currentUser.id).emit("user:unmuted", {
+        unmutedBy: currentUser.id,
+        unmutedUser: userId,
+      });
+    }
+
+    return c.json(
+      {
+        message: "User unmuted successfully",
+        unmutedUser: {
+          _id: userToUnmute._id,
+          name: userToUnmute.name,
+          email: userToUnmute.email,
+          profilePic: userToUnmute.profilePic,
+          about: userToUnmute.about,
+        },
+      },
+      200
+    );
+  } catch (error) {
+    console.error("Error unmuting user:", error);
+    return c.json({ error: "Failed to unmute user" }, 500);
+  }
+};
+
+export const getMutedUsers = async (c: Context) => {
+  const currentUser = c.get("user");
+
+  try {
+    const user = await User.findById(currentUser.id).populate(
+      "mutedUsers",
+      "name email profilePic about lastSeen"
+    );
+
+    if (!user) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    const mutedUsers = (user.mutedUsers || []).map((mutedUser: any) => ({
+      _id: mutedUser._id,
+      name: mutedUser.name,
+      email: mutedUser.email,
+      profilePic: mutedUser.profilePic,
+      about: mutedUser.about,
+      lastSeen: mutedUser.lastSeen,
+    }));
+
+    return c.json(
+      {
+        mutedUsers,
+        count: mutedUsers.length,
+      },
+      200
+    );
+  } catch (error) {
+    console.error("Error fetching muted users:", error);
+    return c.json({ error: "Failed to fetch muted users" }, 500);
   }
 };
 

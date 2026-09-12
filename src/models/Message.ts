@@ -88,6 +88,15 @@ export interface IMessage extends Document {
   callInfo?: ICallInfo;
   systemInfo?: ISystemInfo;
   forwardedFrom?: IForwardedFrom;
+  // Client-generated idempotency key for a 1:1 DM send (dmController.ts's
+  // createDm) — lets a client that never received its own send's response
+  // (a timed-out/aborted request that actually succeeded server-side, a
+  // real, confirmed occurrence — see that controller's own comment) safely
+  // retry with the SAME key instead of either silently double-posting or
+  // refusing to retry at all. Optional and unindexed-by-absence (sparse
+  // index below): only DM sends set this; channel/group messages, call-log
+  // entries, etc. never do.
+  clientMessageId?: string;
 }
 
 const ReactionSchema = new Schema<IReaction>(
@@ -181,10 +190,40 @@ const MessageSchema = new Schema<IMessage>(
     callInfo: { type: CallInfoSchema },
     systemInfo: { type: SystemInfoSchema },
     forwardedFrom: { type: ForwardedFromSchema },
+    clientMessageId: { type: String },
   },
   { timestamps: true }
 );
 
+// Enforces createDm's idempotency guarantee at the DB level, not just via
+// the controller's own pre-check (which alone would still race two truly
+// concurrent identical retries) — a real duplicate insert attempt fails
+// with E11000 instead of creating a second message, and the controller
+// treats that failure as "someone else already won this exact retry" (see
+// its own comment). Sparse: only DM sends ever populate clientMessageId, so
+// every other message type (channel, group, call-log, ...) is excluded from
+// the uniqueness constraint entirely rather than colliding on a shared
+// `undefined`.
+MessageSchema.index(
+  { conversationId: 1, sender: 1, clientMessageId: 1 },
+  { unique: true, sparse: true }
+);
+// Same idempotency mechanism as the DM index directly above, for the other
+// two message surfaces — group DM sends and channel sends. The
+// controller-side dedupe logic for these is implemented separately; these
+// are schema-level indexes only, sparse for the same reason: only a send
+// that actually supplies a clientMessageId is subject to the uniqueness
+// constraint at all, so every message that never sets it (call-log entries,
+// system messages, older sends predating this field, ...) never collides on
+// a shared `undefined`.
+MessageSchema.index(
+  { groupId: 1, sender: 1, clientMessageId: 1 },
+  { unique: true, sparse: true }
+);
+MessageSchema.index(
+  { channel: 1, sender: 1, clientMessageId: 1 },
+  { unique: true, sparse: true }
+);
 MessageSchema.index({ server: 1, channel: 1, thread: 1, createdAt: -1 });
 MessageSchema.index({ plainText: "text", content: "text" });
 MessageSchema.index({ conversationId: 1, createdAt: -1 });

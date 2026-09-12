@@ -41,6 +41,7 @@ import {
   startOrJoinGroupCall,
   leaveGroupCall as leaveGroupCallService,
   leaveGroupCallOnDisconnect,
+  groupCallMediaReady,
 } from "./lib/groupCallService.ts";
 import { isAdminEmail } from "./lib/admin.ts";
 import {
@@ -288,20 +289,26 @@ async function startServer() {
     ): Promise<{ allowed: boolean; transcriptionEnabled: boolean }> => {
       const denied = { allowed: false, transcriptionEnabled: false };
       try {
+        // The channel lookup must run first — its result (the server id) is
+        // what the other two checks need. Those two, though, don't depend on
+        // EACH OTHER, only on channel.server already being known, so they run
+        // concurrently rather than as two sequential awaits. This does mean
+        // the owner-short-circuit below now always pays for the membership
+        // query too — but concurrently with the server lookup, so it costs
+        // no added wall-clock time, just a bit of harmless extra DB load; an
+        // explicitly accepted tradeoff for not special-casing the query away.
         const channel = await Channel.findById(channelId)
           .select("server transcriptionEnabled")
           .lean();
         if (!channel) return denied;
-        const server = await DiscordServer.findById(channel.server)
-          .select("owner")
-          .lean();
+        const [server, isMember] = await Promise.all([
+          DiscordServer.findById(channel.server).select("owner").lean(),
+          ServerMember.exists({ server: channel.server, user: userId }),
+        ]);
         if (!server) return denied;
         const transcriptionEnabled = !!channel.transcriptionEnabled;
-        if (server.owner.toString() === userId) {
-          return { allowed: true, transcriptionEnabled };
-        }
-        const isMember = !!(await ServerMember.exists({ server: channel.server, user: userId }));
-        return { allowed: isMember, transcriptionEnabled };
+        const allowed = server.owner.toString() === userId || !!isMember;
+        return { allowed, transcriptionEnabled };
       } catch (err) {
         console.error("canJoinVoiceChannel error:", err);
         return denied;
@@ -1327,6 +1334,13 @@ async function startServer() {
       socket.on("group-call:leave", (data: { groupCallId?: string }) => {
         if (data?.groupCallId) joinedRooms.delete(data.groupCallId);
         void leaveGroupCallService(io, socket, connectedUserId, data);
+      });
+      // Emitted by a joiner once ITS OWN local media is ready — see
+      // groupCallService.ts's groupCallMediaReady and this file's header
+      // comment on group calls for why the webrtc:user-joined broadcast
+      // moved here instead of firing immediately on group-call:start/join.
+      socket.on("group-call:media-ready", (data: { groupCallId?: string }) => {
+        groupCallMediaReady(io, socket, connectedUserId, data);
       });
 
       // ── Admin dashboard live metrics ─────────────────────────────────────────
