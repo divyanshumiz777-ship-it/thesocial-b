@@ -130,6 +130,20 @@ export const createMessage = async (c: Context) => {
       return c.json({ error: "Invalid ID format" }, 400);
     }
 
+    // serverId is fully client-supplied (the request body) and is what the
+    // ban/mute check right below authorizes against — without this,
+    // `channelId` (the route param the message actually gets created in and
+    // broadcast to) is never verified to belong to that same server. An
+    // attacker in good standing on their OWN server could otherwise pair
+    // its serverId with ANY other server's channelId and inject a message
+    // there, completely bypassing that channel's real membership/ban/mute
+    // enforcement — the ban/mute check would only ever run against the
+    // attacker's own unrelated server.
+    const channelForAuth = await Channel.findById(channelId).select("server").lean();
+    if (!channelForAuth || channelForAuth.server?.toString() !== serverId) {
+      return c.json({ error: "Channel not found" }, 404);
+    }
+
     // A client retrying a send whose OWN response it never received (a
     // client-side timeout/abort on a request that had actually already
     // succeeded — see dmController.ts's createDm for the identical,
@@ -596,7 +610,7 @@ export const updateMessage = async (c: Context) => {
 
 export const toggleReaction = async (c: Context) => {
   const { messageId } = c.req.param();
-  const { emoji, channelId } = await c.req.json();
+  const { emoji } = await c.req.json();
   const user = c.get("user");
   const io: Server = c.get("io");
 
@@ -604,15 +618,37 @@ export const toggleReaction = async (c: Context) => {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  if (
-    !mongoose.Types.ObjectId.isValid(messageId) ||
-    !mongoose.Types.ObjectId.isValid(channelId)
-  )
+  if (!mongoose.Types.ObjectId.isValid(messageId))
     return c.json({ error: "Invalid ID format" }, 400);
 
   try {
     const message = await Message.findById(messageId);
     if (!message) return c.json({ error: "Message not found" }, 404);
+    if (!message.channel) return c.json({ error: "Message not found" }, 404);
+    // This handler previously had NO authorization check at all — not even
+    // the flawed kind — and separately trusted a client-supplied `channelId`
+    // in the body (used only to pick the socket room to broadcast into)
+    // without ever checking it matched this message's real channel. Fixed
+    // by deriving the channel/server from the MESSAGE itself (never
+    // client-supplied) for both the ban/mute check and the broadcast target
+    // below, so a forged channelId can no longer authorize against an
+    // unrelated server or redirect the reactionUpdated broadcast into an
+    // arbitrary room.
+    const channel = await Channel.findById(message.channel).select("server").lean();
+    if (!channel) return c.json({ error: "Message not found" }, 404);
+    const membership = await ServerMember.findOne(
+      { server: channel.server, user: user.id },
+      "banned muted"
+    ).lean();
+    if (membership?.banned?.isBanned) {
+      return c.json({ error: "You are banned from this server" }, 403);
+    }
+    if (
+      membership?.muted?.isMuted &&
+      (!membership.muted.expiresAt || membership.muted.expiresAt > new Date())
+    ) {
+      return c.json({ error: "You are muted in this server" }, 403);
+    }
 
     const userIdString = user.id;
     const userObjectId = new mongoose.Types.ObjectId(user.id);
@@ -657,7 +693,7 @@ export const toggleReaction = async (c: Context) => {
 
     await message.save();
 
-    io.to(channelId).emit("reactionUpdated", {
+    io.to(message.channel.toString()).emit("reactionUpdated", {
       messageId: message._id,
       reactions: message.reactions,
     });

@@ -4,6 +4,7 @@ import {
   sendFriendRequest,
   acceptFriendRequest,
   rejectFriendRequest,
+  cancelFriendRequest,
   removeFriend,
   getFriendsList,
   getOnlineFriends,
@@ -26,6 +27,7 @@ friendRoutes.get("/requests/pending", getPendingRequests);
 friendRoutes.get("/requests/sent", getSentRequests);
 friendRoutes.patch("/request/:requestId/accept", acceptFriendRequest);
 friendRoutes.patch("/request/:requestId/reject", rejectFriendRequest);
+friendRoutes.delete("/request/:requestId", cancelFriendRequest);
 friendRoutes.get("/", getFriendsList);
 friendRoutes.get("/online", getOnlineFriends);
 friendRoutes.get("/nicknames", getNicknames);

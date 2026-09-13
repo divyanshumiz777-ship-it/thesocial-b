@@ -513,8 +513,16 @@ export const editMessage = async (c: Context) => {
   }
 
   try {
+    // conversationId is now part of the match filter itself, not just used
+    // afterward for broadcast targeting — without it, the sender-ownership
+    // check alone let a caller edit their own message while supplying an
+    // UNRELATED conversationId in the URL, and the edited content/sender
+    // identity would then broadcast (via io.to(conversationId) and
+    // emitConversationActivity below) straight into that unrelated
+    // conversation's real participants, leaking content and corrupting
+    // their "last message" preview.
     const updatedMessage = await Message.findOneAndUpdate(
-      { _id: messageId, sender: userId },
+      { _id: messageId, sender: userId, conversationId },
       { content, edited: true },
       { new: true }
     )

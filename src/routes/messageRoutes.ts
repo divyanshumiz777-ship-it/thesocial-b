@@ -19,7 +19,12 @@ import { forwardMessage, getForwardTargets } from "../controllers/forwardControl
 import { authMiddleware } from "../middleware/authMiddleware.ts";
 export const messageRouter = new Hono();
 
-messageRouter.get("/search/:channelId", searchMessages);
+// Was missing authMiddleware entirely — unauthenticated full-text message
+// search across any channel by id. Not a stricter membership check (channel
+// reads have never required one anywhere in this codebase — see
+// getMessagesByChannelId), just bringing this up to the same "must be a
+// logged-in user" bar every other route in this file already has.
+messageRouter.get("/search/:channelId", authMiddleware, searchMessages);
 messageRouter.get(
   "/get-messages/:channelId",
   authMiddleware,

@@ -354,6 +354,54 @@ export const rejectFriendRequest = async (c: Context) => {
   }
 };
 
+// Lets the SENDER withdraw their own still-pending request — the only
+// friend-request mutation missing until now (accept/reject both exist, but
+// only the RECEIVER could call them; a sender who changed their mind had no
+// way to undo a request at all). Deletes the document outright rather than
+// setting some new "cancelled" status: the unique {sender,receiver} index
+// on FriendRequest means a deleted row lets a future request between the
+// same two people go through sendFriendRequest's "create new" path cleanly,
+// with no dangling terminal-status row to special-case later.
+export const cancelFriendRequest = async (c: Context) => {
+  try {
+    const requestId = c.req.param("requestId");
+    const user = c.get("user");
+    const userId = user.id;
+
+    const friendRequest = await FriendRequest.findById(requestId);
+    if (!friendRequest) {
+      return c.json({ error: "Friend request not found" }, 404);
+    }
+
+    if (friendRequest.sender.toString() !== userId) {
+      return c.json({ error: "Unauthorized" }, 403);
+    }
+
+    if (friendRequest.status !== "pending") {
+      return c.json(
+        { error: `Friend request is already ${friendRequest.status}` },
+        400
+      );
+    }
+
+    const receiverId = friendRequest.receiver.toString();
+    await FriendRequest.findByIdAndDelete(requestId);
+
+    // Both sides need to hear about this: the sender's own other devices
+    // (their "Sent" list should drop it) and the receiver (their pending
+    // list should drop it too) — same both-parties-notified shape as
+    // removeFriend's friend_removed emit above.
+    const io = getIoInstance();
+    io.to(userId).emit("friend_request_cancelled", { requestId, receiverId });
+    io.to(receiverId).emit("friend_request_cancelled", { requestId, senderId: userId });
+
+    return c.json({ message: "Friend request cancelled" });
+  } catch (error) {
+    console.error("Error cancelling friend request:", error);
+    return c.json({ error: "Failed to cancel friend request" }, 500);
+  }
+};
+
 export const getFriendsList = async (c: Context) => {
   try {
     const user = c.get("user");
@@ -606,6 +654,30 @@ export const searchUsers = async (c: Context) => {
       ).map((id) => id.toString())
     );
 
+    // Lets the mobile client hide/relabel the "Send request" button per
+    // result instead of showing it unconditionally for every match,
+    // including people already friends (previously indistinguishable from a
+    // stranger) — mirrors the isFriend field getAllUsers (userController.ts)
+    // already returns for the same reason, just missing here until now.
+    // requestStatus additionally distinguishes "I already sent them a
+    // request" from "they already sent ME one" so the client can show the
+    // right label/action for either direction, not just a flat "pending".
+    const pendingWithResults = await FriendRequest.find({
+      $or: [
+        { sender: currentUserId, receiver: { $in: filteredUsers.map((u) => u._id) } },
+        { sender: { $in: filteredUsers.map((u) => u._id) }, receiver: currentUserId },
+      ],
+      status: "pending",
+    }).select("sender receiver");
+    const requestStatusByUserId = new Map<string, "sent" | "received">();
+    for (const req of pendingWithResults) {
+      if (req.sender.toString() === currentUserId) {
+        requestStatusByUserId.set(req.receiver.toString(), "sent");
+      } else {
+        requestStatusByUserId.set(req.sender.toString(), "received");
+      }
+    }
+
     // Respect each result's profile visibility. Restricted users still appear
     // (identity only) so they remain findable for friend requests.
     const view = filteredUsers.map((u) => ({
@@ -615,6 +687,8 @@ export const searchUsers = async (c: Context) => {
         isFollower: myFollowingIds.has(u._id.toString()),
       }),
       isCreator: creatorIds.has(u._id.toString()),
+      isFriend: friendIds.has(u._id.toString()),
+      requestStatus: requestStatusByUserId.get(u._id.toString()) ?? null,
     }));
 
     return c.json({
