@@ -277,6 +277,19 @@ async function startServer() {
       io.to(roomId).emit("channel:member-count", { channelId: roomId, count });
     };
 
+    // Multi-tab guard for the disconnect sweep below: ONE socket dropping does
+    // not mean the USER left the call — they may have the same voice channel
+    // open in another tab or on another device. Same local-adapter caveat as
+    // endVoiceSessionIfEmpty's room-size check.
+    const userHasSocketInRoom = (userId: string, roomId: string): boolean => {
+      const room = io.sockets.adapter.rooms.get(roomId);
+      if (!room) return false;
+      for (const sid of room) {
+        if (io.sockets.sockets.get(sid)?.data?.userId === userId) return true;
+      }
+      return false;
+    };
+
     // ── Voice session lifecycle ─────────────────────────────────────────────
     // Any server member (owner, admin, mod, or plain member) may join a
     // voice channel's call — this is a participation check, not a structural
@@ -654,6 +667,12 @@ async function startServer() {
     io.on("connection", (socket) => {
       let connectedUserId: string = socket.data.userId as string;
       const joinedRooms = new Set<string>();
+      // Rooms this socket actually entered as a VOICE participant via
+      // webrtc:join — a strict subset of joinedRooms, which also holds server,
+      // conversation, reel and plain text-channel rooms. The disconnect sweep
+      // needs the narrow set so that a second tab merely VIEWING the channel
+      // can never evict a live participant from the call.
+      const voiceRooms = new Set<string>();
 
       console.log(
         `Socket ${socket.id} connected (user ${connectedUserId}, ` +
@@ -1072,6 +1091,7 @@ async function startServer() {
             }
             socket.join(channelId);
             joinedRooms.add(channelId);
+            voiceRooms.add(channelId);
             io.to(channelId).emit("webrtc:user-joined", { userId: connectedUserId });
             const sessionId = await startOrJoinVoiceSession(channelId, connectedUserId);
             // Told only to the joining socket (not broadcast) — this is how
@@ -1102,6 +1122,7 @@ async function startServer() {
           try {
             socket.leave(channelId);
             joinedRooms.delete(channelId);
+            voiceRooms.delete(channelId);
             io.to(channelId).emit("webrtc:user-left", { userId: connectedUserId });
             await endVoiceSessionIfEmpty(channelId);
           } catch {
@@ -1415,6 +1436,22 @@ async function startServer() {
           for (const roomId of joinedRooms) {
             if (roomId !== connectedUserId) {
               emitRoomCounts(roomId);
+              // An abrupt drop (tab close, force-quit, signal loss) never
+              // sends webrtc:leave, and webrtc:user-left is the ONLY signal
+              // that removes a peer client-side (useWebRTC's handleUserLeft,
+              // on both web and mobile). Without it every remaining
+              // participant keeps a frozen "Reconnecting…" tile forever, plus
+              // an ICE restart against a socket that is never coming back.
+              // Group calls already got this sweep (leaveGroupCallOnDisconnect
+              // below); community voice channels were missed.
+              if (
+                voiceRooms.has(roomId) &&
+                !userHasSocketInRoom(connectedUserId, roomId)
+              ) {
+                io.to(roomId).emit("webrtc:user-left", {
+                  userId: connectedUserId,
+                });
+              }
               // Best-effort: ends the voice session if this was the last
               // participant in a Voice channel and they disconnected (tab
               // close, crash, network drop) without an explicit
