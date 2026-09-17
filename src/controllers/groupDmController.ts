@@ -1087,11 +1087,19 @@ export const sendMessage = async (c: Context) => {
       throw err;
     }
 
-    await message.populate("sender", "name email profilePic");
-    await message.populate({
-      path: "replyTo",
-      populate: { path: "sender", select: "name profilePic email" },
-    });
+    // ONE populate call, not two. `message` is an already-saved document here,
+    // so each `await message.populate(...)` executes its own query the moment
+    // it's called — two calls meant two sequential round trips on every single
+    // send. Passing both paths to a single call resolves them together.
+    // (Unlike dmController/messageController, which populate a Query that
+    // hasn't executed yet — chaining .populate() there is already one query.)
+    await message.populate([
+      { path: "sender", select: "name email profilePic" },
+      {
+        path: "replyTo",
+        populate: { path: "sender", select: "name profilePic email" },
+      },
+    ]);
 
     const io = getIoInstance();
     io.to(groupId).emit("groupMessage", {
@@ -1104,38 +1112,68 @@ export const sendMessage = async (c: Context) => {
     // got nothing. No per-group mute setting exists (only mutedServers/
     // mutedConversations), so this only respects the recipient's global
     // notifications.level opt-out.
-    try {
-      const senderName = (message.sender as any)?.name || "Someone";
-      const snippet = content
-        ? String(content).slice(0, 140)
-        : attachmentsV2.length > 0
-          ? "📎 Sent an attachment"
-          : "";
-      const recipientIds = group.participants
-        .map((p: any) => p.toString())
-        .filter((id: string) => id !== userId);
-      const recipients = await User.find({ _id: { $in: recipientIds } }).select(
-        "settings.notifications.level"
-      );
-      for (const recipient of recipients) {
-        const level = (recipient as any).settings?.notifications?.level || "all";
-        if (level === "none") continue;
-        const notification = await createNotification({
-          recipient: recipient._id.toString(),
-          sender: userId,
-          type: "group_message",
-          title: `${senderName} in ${group.name}`,
-          message: snippet,
-          metadata: { groupId, messageId: message._id.toString() },
-          actionUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/community/me?group=${groupId}`,
-        });
-        if (notification) sendNotificationViaSocket(io, recipient._id.toString(), notification);
+    //
+    // Fire-and-forget, and fanned out with Promise.all rather than a
+    // sequential loop — this was the single largest source of send latency in
+    // the whole app. createNotification does ~3 sequential DB round trips of
+    // its own (block-check, Notification.create, populated findById), and this
+    // previously ran that entire chain SEQUENTIALLY, once per group member,
+    // with the response blocked behind all of it: an N-member group paid
+    // 3 x N sequential round trips before the sender's own send request could
+    // return. Nothing in the 201 response body depends on any of it. Matches
+    // the `void createNotification(...)` treatment createDm already gives the
+    // identical 1:1 case; createNotification catches all its own errors and
+    // resolves to null on failure, so this can't produce an unhandled
+    // rejection (the outer try/catch stays for the User.find above it).
+    void (async () => {
+      try {
+        const senderName = (message.sender as any)?.name || "Someone";
+        const snippet = content
+          ? String(content).slice(0, 140)
+          : attachmentsV2.length > 0
+            ? "📎 Sent an attachment"
+            : "";
+        const recipientIds = group.participants
+          .map((p: any) => p.toString())
+          .filter((id: string) => id !== userId);
+        const recipients = await User.find({
+          _id: { $in: recipientIds },
+        }).select("settings.notifications.level");
+        await Promise.all(
+          recipients.map(async (recipient) => {
+            const level =
+              (recipient as any).settings?.notifications?.level || "all";
+            if (level === "none") return;
+            const notification = await createNotification({
+              recipient: recipient._id.toString(),
+              sender: userId,
+              type: "group_message",
+              title: `${senderName} in ${group.name}`,
+              message: snippet,
+              metadata: { groupId, messageId: message._id.toString() },
+              actionUrl: `${process.env.FRONTEND_URL || "http://localhost:3000"}/community/me?group=${groupId}`,
+            });
+            if (notification)
+              sendNotificationViaSocket(io, recipient._id.toString(), notification);
+          })
+        );
+      } catch (err) {
+        console.error("Failed to create group message notifications:", err);
       }
-    } catch (err) {
-      console.error("Failed to create group message notifications:", err);
-    }
+    })();
 
-    await CacheInvalidator.invalidateGroup(groupId);
+    // Deliberately NOT calling CacheInvalidator.invalidateGroup here. Verified
+    // dead work: app.ts's cache skip-list permanently excludes every
+    // `/api/v1/dm/groups/` route (socket provides liveness — see that list's
+    // own comment), so nothing under that prefix is ever written to the cache,
+    // and invalidateGroup's two patterns (`.../dm/groups/${groupId}*` and
+    // `.../dm/groups/my-groups*`) can only ever match zero keys. It was not
+    // free, though: cache.delPattern (lib/redis.ts) implements each pattern as
+    // a full SCAN loop that walks the ENTIRE Redis keyspace — MATCH filters
+    // what SCAN returns, it does not let SCAN skip non-matching keys — so this
+    // cost a keyspace-proportional burst of round trips, awaited, in front of
+    // every group message's response, to delete nothing. Same reasoning (and
+    // the same fix) as dmController.ts's createDm and its invalidateAfterDM.
     return c.json({ success: true, message: message.toObject() }, 201);
   } catch (error) {
     console.error("Error sending message:", error);

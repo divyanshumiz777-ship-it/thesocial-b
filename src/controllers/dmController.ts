@@ -84,13 +84,25 @@ export const createDm = async (c: Context) => {
   }
 
   try {
-    // Independent lookups — neither depends on the other's result — so run
-    // them concurrently instead of paying two sequential round trips on
-    // every send.
-    const [sender, receiver] = await Promise.all([
-      User.findById(senderId),
-      User.findById(receiverId),
-    ]);
+    const participants = [senderId, receiverId].sort();
+
+    // Every one of these four reads is independent of the other three — the
+    // DM-privacy check and the conversation lookup both key off the raw id
+    // strings, not off the sender/receiver documents — so they all go out at
+    // once. They used to be three sequential steps (this pair, then
+    // isMemberDmBlocked, then Conversation.findOne), each separated only
+    // because the validation checks between them read top-to-bottom. Those
+    // checks still run in exactly the same order and still short-circuit the
+    // same way below; ordering the CHECKS no longer means paying for three
+    // serial round trips to the database. On the common path where every
+    // check passes, this is the difference between 3 round trips and 1.
+    const [sender, receiver, dmBlocked, existingConversation] =
+      await Promise.all([
+        User.findById(senderId),
+        User.findById(receiverId),
+        isMemberDmBlocked(senderId, receiverId),
+        Conversation.findOne({ participants: { $all: participants } }),
+      ]);
     if (!sender) {
       return c.json({ error: "Sender not found" }, 404);
     }
@@ -120,7 +132,7 @@ export const createDm = async (c: Context) => {
       );
     }
 
-    if (await isMemberDmBlocked(senderId, receiverId)) {
+    if (dmBlocked) {
       return c.json(
         {
           error:
@@ -130,12 +142,9 @@ export const createDm = async (c: Context) => {
       );
     }
 
-    const participants = [senderId, receiverId].sort();
-
-    let conversation = await Conversation.findOne({
-      participants: { $all: participants },
-    });
-
+    // Only the very first message in a brand-new conversation pays for this
+    // write; every subsequent send reuses what the lookup above already found.
+    let conversation = existingConversation;
     if (!conversation) {
       conversation = await Conversation.create({ participants });
     }

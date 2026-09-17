@@ -139,33 +139,46 @@ export const createMessage = async (c: Context) => {
     // there, completely bypassing that channel's real membership/ban/mute
     // enforcement — the ban/mute check would only ever run against the
     // attacker's own unrelated server.
-    const channelForAuth = await Channel.findById(channelId).select("server").lean();
+    //
+    // This lookup, the idempotency pre-check, and the ban/mute lookup below
+    // are mutually independent — each keys off the route param / body / token
+    // directly, none reads another's result — so all three are issued at once
+    // instead of as three serial round trips. Everything they GATE still
+    // happens in the original order immediately below (channel-mismatch 404,
+    // then the idempotent-retry 200, then banned/muted 403), so no request can
+    // observe a different outcome than before; only the waiting changed. This
+    // sits directly in front of the socket emit, so a round trip saved here is
+    // a round trip off how long the RECIPIENT waits to see the message.
+    const [channelForAuth, existingForRetry, membership] = await Promise.all([
+      Channel.findById(channelId).select("server").lean(),
+      // A client retrying a send whose OWN response it never received (a
+      // client-side timeout/abort on a request that had actually already
+      // succeeded — see dmController.ts's createDm for the identical,
+      // confirmed real-world occurrence this mirrors) would otherwise post the
+      // same message twice. Returning the already-created message instead —
+      // same shape, 200 instead of 201 — makes this endpoint safe to retry.
+      // Still resolved before the Cloudinary upload loop below, so a retried
+      // multipart send (with an attachment) skips re-uploading the file
+      // entirely, not just re-creating the message — see
+      // sendChannelMessageWithAttachment's own comment (serverApi.ts) for why
+      // that's a strict improvement over group DM's equivalent gap, where the
+      // upload happens inline during body-parsing, before any idempotency
+      // check could ever run.
+      clientMessageId
+        ? findByClientMessageId(channelId, senderId, clientMessageId)
+        : Promise.resolve(null),
+      ServerMember.findOne(
+        { server: serverId, user: senderId },
+        "banned muted"
+      ).lean(),
+    ]);
+
     if (!channelForAuth || channelForAuth.server?.toString() !== serverId) {
       return c.json({ error: "Channel not found" }, 404);
     }
 
-    // A client retrying a send whose OWN response it never received (a
-    // client-side timeout/abort on a request that had actually already
-    // succeeded — see dmController.ts's createDm for the identical,
-    // confirmed real-world occurrence this mirrors) would otherwise post the
-    // same message twice. Returning the already-created message instead —
-    // same shape, 200 instead of 201 — makes this endpoint safe to retry.
-    // Deliberately placed here, before the Cloudinary upload loop below: a
-    // retried multipart send (with an attachment) that hits this pre-check
-    // skips re-uploading the file entirely, not just re-creating the
-    // message — see sendChannelMessageWithAttachment's own comment
-    // (serverApi.ts) for why that's a strict improvement over group DM's
-    // equivalent gap, where the upload happens inline during body-parsing,
-    // before any idempotency check could ever run.
-    if (clientMessageId) {
-      const existing = await findByClientMessageId(channelId, senderId, clientMessageId);
-      if (existing) return c.json(existing, 200);
-    }
+    if (existingForRetry) return c.json(existingForRetry, 200);
 
-    const membership = await ServerMember.findOne(
-      { server: serverId, user: senderId },
-      "banned muted"
-    ).lean();
     if (membership?.banned?.isBanned) {
       return c.json({ error: "You are banned from this server" }, 403);
     }
@@ -290,60 +303,101 @@ export const createMessage = async (c: Context) => {
       messageId: newMessage._id.toString(),
     }, io);
 
+    // Fire-and-forget, and fanned out rather than looped sequentially — the
+    // sender's 201 must not wait on anyone else's notification row. This
+    // previously ran, inline and awaited, one `User.findById` PLUS one
+    // `createNotification` (itself ~3 sequential DB round trips: block-check,
+    // Notification.create, populated findById) per mentioned user, in series —
+    // so an @everyone-style message with several mentions blocked its own
+    // sender for the sum of all of them. Same treatment the sibling DM path
+    // (dmController.ts's createDm) already gives its `dm_message` notification.
+    // createNotification swallows its own errors and resolves to null, and the
+    // wrapper try/catch covers the Channel.findById above it, so this can
+    // never surface as an unhandled rejection.
     if (mentions.length > 0) {
-      try {
-        const channelDoc = await Channel.findById(channelId).select("name");
-        const channelName = channelDoc?.name || "channel";
-        const senderName = (populatedMessage as any)?.sender?.name || "Someone";
-        const snippet = String(content || "").slice(0, 140);
+      void (async () => {
+        try {
+          const channelDoc = await Channel.findById(channelId).select("name");
+          const channelName = channelDoc?.name || "channel";
+          const senderName =
+            (populatedMessage as any)?.sender?.name || "Someone";
+          const snippet = String(content || "").slice(0, 140);
 
-        for (const recipientId of mentions as string[]) {
-          if (!mongoose.Types.ObjectId.isValid(recipientId)) continue;
-          const recipient = await User.findById(recipientId).select("settings");
-          const level =
-            (recipient as any)?.settings?.notifications?.level || "all";
-          const mutedServers: string[] = (
-            (recipient as any)?.settings?.mutedServers || []
-          ).map(String);
+          await Promise.all(
+            (mentions as string[]).map(async (recipientId) => {
+              if (!mongoose.Types.ObjectId.isValid(recipientId)) return;
+              const recipient =
+                await User.findById(recipientId).select("settings");
+              const level =
+                (recipient as any)?.settings?.notifications?.level || "all";
+              const mutedServers: string[] = (
+                (recipient as any)?.settings?.mutedServers || []
+              ).map(String);
 
-          const allowByLevel = level === "all" || level === "mentions";
-          const muted = mutedServers.includes(String(serverId));
-          if (!allowByLevel || muted) continue;
+              const allowByLevel = level === "all" || level === "mentions";
+              const muted = mutedServers.includes(String(serverId));
+              if (!allowByLevel || muted) return;
 
-          const actionUrl = `${
-            process.env.FRONTEND_URL || "http://localhost:3000"
-          }/community/${serverId}/${channelId}?messageId=${String(
-            (populatedMessage as any)?._id
-          )}`;
+              const actionUrl = `${
+                process.env.FRONTEND_URL || "http://localhost:3000"
+              }/community/${serverId}/${channelId}?messageId=${String(
+                (populatedMessage as any)?._id
+              )}`;
 
-          const notif = await createNotification({
-            recipient: String(recipientId),
-            sender: String(senderId),
-            type: "message_mention",
-            title: `Mentioned in #${channelName}`,
-            message: `${senderName}: ${snippet}`,
-            metadata: {
-              serverId,
-              channelId,
-              messageId: String((populatedMessage as any)?._id),
-            },
-            actionUrl,
-          });
+              const notif = await createNotification({
+                recipient: String(recipientId),
+                sender: String(senderId),
+                type: "message_mention",
+                title: `Mentioned in #${channelName}`,
+                message: `${senderName}: ${snippet}`,
+                metadata: {
+                  serverId,
+                  channelId,
+                  messageId: String((populatedMessage as any)?._id),
+                },
+                actionUrl,
+              });
 
-          if (notif) {
-            sendNotificationViaSocket(io, String(recipientId), notif);
-          }
+              if (notif) {
+                sendNotificationViaSocket(io, String(recipientId), notif);
+              }
+            })
+          );
+        } catch (e) {
+          console.error("Failed to create mention notifications:", e);
         }
-      } catch (e) {
-        console.error("Failed to create mention notifications:", e);
-      }
+      })();
     }
 
-    await Channel.findByIdAndUpdate(channelId, {
+    // Both of these are bookkeeping the sender's own response never reads, and
+    // the message itself already went out over the socket above — so neither
+    // belongs in front of the 201.
+    //
+    // `senders` is a denormalized "who has ever posted here" set used by
+    // unrelated reads; it being a few milliseconds late is unobservable.
+    //
+    // invalidateAfterMessage is the more expensive of the two: cache.delPattern
+    // (lib/redis.ts) runs each pattern as a SCAN loop over the ENTIRE Redis
+    // keyspace (MATCH filters SCAN's output, it does not let SCAN skip
+    // non-matching keys), so its cost grows with total cached keys, not with
+    // keys actually deleted — and one of its two patterns, the
+    // `/api/v1/message/get-messages/` one, can never match anything at all,
+    // because app.ts's cache skip-list permanently excludes that route (socket
+    // provides liveness). Running it after the response keeps the eviction
+    // without charging every sender for it.
+    // .exec() rather than relying on .catch() alone to kick the Query off — a
+    // Mongoose Query is lazy, and making execution explicit here means this
+    // write can never silently stop happening.
+    void Channel.findByIdAndUpdate(channelId, {
       $addToSet: { senders: senderId },
-    });
+    })
+      .exec()
+      .catch((e) => console.error("Failed to update channel senders:", e));
 
-    await invalidateAfterMessage(channelId, serverId);
+    void invalidateAfterMessage(channelId, serverId).catch((e) =>
+      console.error("Failed to invalidate message cache:", e)
+    );
+
     return c.json(populatedMessage, 201);
   } catch (error) {
     console.error("Error creating message:", error);

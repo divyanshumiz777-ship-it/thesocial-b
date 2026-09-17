@@ -39,6 +39,17 @@ const ServerMemberSchema = new Schema<IServerMember>(
 
 ServerMemberSchema.index({ server: 1, user: 1 }, { unique: true });
 
+// The compound index above is keyed server-first, so it cannot serve a query
+// filtered on `user` alone — those collection-scan instead (confirmed via
+// explain: COLLSCAN). That shape is not rare: serverPrivacy.ts's
+// blockedByEverySharedServer runs TWO `ServerMember.find({ user }).distinct()`
+// calls, and it sits on the critical path of EVERY 1:1 DM send (the
+// "are DMs disabled between members of a community you share" check). It is
+// cheap today only because this collection is small; it grows linearly with
+// total memberships across the platform, and it grows on the one path users
+// feel most directly. This index keeps that lookup O(matching rows).
+ServerMemberSchema.index({ user: 1 });
+
 const ServerMember = mongoose.model<IServerMember>(
   "ServerMember",
   ServerMemberSchema
